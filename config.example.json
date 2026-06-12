@@ -1,27 +1,56 @@
 {
-  "github_username": "your-username",
-  "token": "ghp_your_classic_or_fine_grained_token",
-  "account_type": "user",
-  "organization": "",
-  "enterprise": "",
-  "plan": "pro",
-  "billing_mode": "auto",
-  "data_source": "auto",
-  "monthly_limit": null,
   "refresh_interval_seconds": 300,
   "thresholds": {
     "warning_percent": 75,
     "critical_percent": 90
   },
+  "widget": {
+    "always_on_top": true,
+    "opacity": 0.92
+  },
   "autostart": {
     "enabled": true
   },
-  "widget": {
-    "always_on_top": true,
-    "opacity": 0.92,
-    "position": {
-      "x": 50,
-      "y": 50
+  "accounts": [
+    {
+      "id": "copilot-personal",
+      "label": "Copilot Personal",
+      "provider": "github_copilot",
+      "enabled": true,
+      "github_username": "your-username",
+      "token": "ghp_your_classic_or_fine_grained_token",
+      "account_type": "user",
+      "organization": "",
+      "enterprise": "",
+      "plan": "pro",
+      "billing_mode": "auto",
+      "data_source": "auto",
+      "monthly_limit": null,
+      "widget": {
+        "enabled": true,
+        "position": {
+          "x": 50,
+          "y": 50
+        }
+      }
+    },
+    {
+      "id": "cursor-main",
+      "label": "Cursor",
+      "provider": "cursor",
+      "enabled": true,
+      "api_key": "",
+      "session_token": "your_cursor_session_token",
+      "cursor_email": "",
+      "cursor_auth_mode": "auto",
+      "api_base_url": "https://api2.cursor.sh",
+      "widget": {
+        "enabled": true,
+        "position": {
+          "x": 50,
+          "y": 200
+        }
+      }
     }
-  }
+  ]
 }

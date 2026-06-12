@@ -2,55 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Any
 
 import requests
 
-from config import AppConfig
+from config import AccountConfig
+from usage_types import AccountUsage, UsageStatus
 
 GITHUB_API = "https://api.github.com"
 API_VERSION = "2026-03-10"
 COPILOT_INTERNAL_API_VERSION = "2025-05-01"
 COPILOT_INTERNAL_PATH = "/copilot_internal/user"
-
-
-class UsageStatus(str, Enum):
-    OK = "ok"
-    WARNING = "warning"
-    CRITICAL = "critical"
-    EXCEEDED = "exceeded"
-    UNKNOWN = "unknown"
-    ERROR = "error"
-
-
-@dataclass
-class CopilotUsage:
-    used: float
-    limit: float | None
-    unit: str
-    billing_mode: str
-    status: UsageStatus
-    percent_used: float | None
-    remaining: float | None
-    username: str
-    period_label: str
-    message: str = ""
-    raw_items_count: int = 0
-    plan: str = ""
-    organization: str = ""
-
-    @property
-    def status_label(self) -> str:
-        labels = {
-            UsageStatus.OK: "Normal",
-            UsageStatus.WARNING: "Warning",
-            UsageStatus.CRITICAL: "Critical",
-            UsageStatus.EXCEEDED: "Limit reached",
-            UsageStatus.UNKNOWN: "Unknown",
-            UsageStatus.ERROR: "Error",
-        }
-        return labels.get(self.status, "Unknown")
 
 
 @dataclass(frozen=True)
@@ -62,31 +24,31 @@ class UsageRequest:
 
 
 class GitHubCopilotClient:
-    def __init__(self, config: AppConfig) -> None:
-        self.config = config
+    def __init__(self, account: AccountConfig) -> None:
+        self.account = account
         self.session = requests.Session()
         self.session.headers.update(
             {
-                "Authorization": f"Bearer {config.token}",
+                "Authorization": f"Bearer {account.token}",
                 "Accept": "application/json",
-                "User-Agent": "CopilotDesktopMonitor/1.0",
+                "User-Agent": "CopilotDesktopMonitor/2.0",
             }
         )
 
-    def fetch_usage(self) -> CopilotUsage:
+    def fetch_usage(self) -> AccountUsage:
         now = datetime.now(timezone.utc)
         period_label = f"{now.month:02d}/{now.year}"
         errors: list[str] = []
 
-        if self.config.data_source in {"auto", "copilot_internal"}:
+        if self.account.data_source in {"auto", "copilot_internal"}:
             try:
                 return self._fetch_internal_usage(period_label)
             except GitHubApiError as exc:
                 errors.append(f"copilot_internal: {exc}")
-                if self.config.data_source == "copilot_internal":
+                if self.account.data_source == "copilot_internal":
                     return self._error_usage(period_label, str(exc))
 
-        if self.config.data_source in {"auto", "billing_api"}:
+        if self.account.data_source in {"auto", "billing_api"}:
             attempts = self._usage_requests(now.year, now.month)
             for attempt in attempts:
                 try:
@@ -98,7 +60,7 @@ class GitHubCopilotClient:
         message = self._compose_error_message(errors)
         return self._error_usage(period_label, message)
 
-    def _fetch_internal_usage(self, period_label: str) -> CopilotUsage:
+    def _fetch_internal_usage(self, period_label: str) -> AccountUsage:
         response = self.session.get(
             f"{GITHUB_API}{COPILOT_INTERNAL_PATH}",
             headers={"X-GitHub-Api-Version": COPILOT_INTERNAL_API_VERSION},
@@ -132,16 +94,18 @@ class GitHubCopilotClient:
         else:
             raise GitHubApiError("API did not return premium interactions quota")
 
-        username = str(payload.get("login") or self.config.github_username)
-        plan = str(payload.get("copilot_plan") or self.config.plan)
+        username = self.account.github_username or str(payload.get("login") or "")
+        plan = self.account.plan or str(payload.get("copilot_plan") or "")
         reset_date = str(payload.get("quota_reset_date") or period_label)
 
-        status, percent, remaining_value = _compute_status(used, limit, self.config, percent)
+        status, percent, remaining_value = _compute_status(used, limit, self.account, percent)
 
-        orgs = payload.get("organization_login_list") or []
-        org_label = ", ".join(orgs) if orgs else self.config.organization
+        org_label = self.account.organization.strip()
+        if not org_label:
+            orgs = payload.get("organization_login_list") or []
+            org_label = ", ".join(str(org) for org in orgs if org)
 
-        return CopilotUsage(
+        return AccountUsage(
             used=used,
             limit=limit,
             unit="premium requests",
@@ -154,14 +118,16 @@ class GitHubCopilotClient:
             raw_items_count=1,
             plan=plan,
             organization=org_label,
+            provider="github_copilot",
+            label=self.account.label,
         )
 
     def _usage_requests(self, year: int, month: int) -> list[UsageRequest]:
         base_params: dict[str, Any] = {"year": year, "month": month}
-        user = self.config.github_username
-        org = self.config.organization
-        enterprise = self.config.enterprise
-        account_type = self.config.account_type
+        user = self.account.github_username
+        org = self.account.organization
+        enterprise = self.account.enterprise
+        account_type = self.account.account_type
         modes = self._billing_modes_to_try()
         requests_list: list[UsageRequest] = []
 
@@ -212,7 +178,7 @@ class GitHubCopilotClient:
         return requests_list
 
     def _billing_modes_to_try(self) -> list[str]:
-        mode = self.config.billing_mode
+        mode = self.account.billing_mode
         if mode == "premium_requests":
             return ["premium_requests"]
         if mode == "ai_credits":
@@ -249,22 +215,20 @@ class GitHubCopilotClient:
 
     def _parse_billing_usage(
         self, payload: dict[str, Any], mode: str, period_label: str
-    ) -> CopilotUsage:
+    ) -> AccountUsage:
         items = payload.get("usageItems") or []
         if not items:
-            raise GitHubApiError(
-                f"API returned 0 items for {mode} in {period_label}"
-            )
+            raise GitHubApiError(f"API returned 0 items for {mode} in {period_label}")
 
         if mode == "ai_credits":
             used, unit, api_limit = _parse_ai_credits(items)
         else:
             used, unit, api_limit = _parse_premium_requests(items)
 
-        limit = self.config.resolve_monthly_limit(mode, api_limit)
-        status, percent, remaining = _compute_status(used, limit, self.config)
+        limit = self.account.resolve_monthly_limit(mode, api_limit)
+        status, percent, remaining = _compute_status(used, limit, self.account)
 
-        return CopilotUsage(
+        return AccountUsage(
             used=used,
             limit=limit,
             unit=unit,
@@ -272,14 +236,17 @@ class GitHubCopilotClient:
             status=status,
             percent_used=percent,
             remaining=remaining,
-            username=self.config.github_username,
+            username=self.account.github_username,
             period_label=period_label,
             raw_items_count=len(items),
-            plan=self.config.plan,
+            plan=self.account.plan,
+            organization=self.account.organization,
+            provider="github_copilot",
+            label=self.account.label,
         )
 
-    def _error_usage(self, period_label: str, message: str) -> CopilotUsage:
-        return CopilotUsage(
+    def _error_usage(self, period_label: str, message: str) -> AccountUsage:
+        return AccountUsage(
             used=0,
             limit=None,
             unit="",
@@ -287,9 +254,11 @@ class GitHubCopilotClient:
             status=UsageStatus.ERROR,
             percent_used=None,
             remaining=None,
-            username=self.config.github_username,
+            username=self.account.github_username,
             period_label=period_label,
             message=message,
+            provider="github_copilot",
+            label=self.account.label,
         )
 
 
@@ -338,7 +307,7 @@ def _parse_ai_credits(items: list[dict[str, Any]]) -> tuple[float, str, float | 
 def _compute_status(
     used: float,
     limit: float | None,
-    config: AppConfig,
+    account: AccountConfig,
     percent_override: float | None = None,
 ) -> tuple[UsageStatus, float | None, float | None]:
     if limit is None or limit <= 0:
@@ -349,9 +318,9 @@ def _compute_status(
 
     if percent >= 100:
         return UsageStatus.EXCEEDED, percent, remaining
-    if percent >= config.thresholds.critical_percent:
+    if percent >= account.thresholds.critical_percent:
         return UsageStatus.CRITICAL, percent, remaining
-    if percent >= config.thresholds.warning_percent:
+    if percent >= account.thresholds.warning_percent:
         return UsageStatus.WARNING, percent, remaining
     return UsageStatus.OK, percent, remaining
 

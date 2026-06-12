@@ -25,6 +25,25 @@ def is_linux() -> bool:
     return system_name() == "linux"
 
 
+def format_period_date(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return ""
+
+    if "T" in text:
+        return text.split("T", 1)[0]
+
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        return text[:10]
+
+    if "/" in text:
+        month, year = (part.strip() for part in text.split("/", 1))
+        if len(year) == 4 and len(month) <= 2:
+            return f"{year}-{month.zfill(2)}-01"
+
+    return text
+
+
 def ui_font(size: int = 10, bold: bool = False) -> tuple[str, int] | tuple[str, int, str]:
     if is_windows():
         family = "Segoe UI"

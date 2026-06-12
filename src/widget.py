@@ -4,9 +4,10 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
-from config import AppConfig
-from github_api import CopilotUsage, UsageStatus
-from platform_utils import apply_window_attributes, ui_font
+from config import AccountConfig, MonitorConfig
+from provider_icons import get_provider_icon
+from usage_types import AccountUsage, UsageStatus
+from platform_utils import apply_window_attributes, format_period_date, ui_font
 
 STATUS_COLORS = {
     UsageStatus.OK: ("#0d1117", "#238636", "#3fb950"),
@@ -17,39 +18,48 @@ STATUS_COLORS = {
     UsageStatus.ERROR: ("#0d1117", "#30363d", "#f85149"),
 }
 
+PROVIDER_LABELS = {
+    "github_copilot": "GitHub Copilot",
+    "cursor": "Cursor",
+}
+
 BG_APP = "#0d1117"
 BG_CARD = "#161b22"
 BG_CARD_BORDER = "#30363d"
 FG_PRIMARY = "#f0f6fc"
 FG_MUTED = "#8b949e"
-FG_SUBTLE = "#6e7681"
 
 
-class CopilotWidget(tk.Tk):
+class AccountWidget(tk.Toplevel):
     def __init__(
         self,
-        config: AppConfig,
-        on_refresh: Callable[[], CopilotUsage],
-        on_quit: Callable[[], None],
+        root: tk.Tk,
+        monitor_config: MonitorConfig,
+        account: AccountConfig,
+        on_refresh: Callable[[], AccountUsage],
+        on_close: Callable[[], None],
     ) -> None:
-        super().__init__()
-        self.config_data = config
+        super().__init__(root)
+        self.monitor_config = monitor_config
+        self.account = account
         self.on_refresh = on_refresh
-        self.on_quit = on_quit
+        self.on_close = on_close
         self._drag_offset_x = 0
         self._drag_offset_y = 0
 
-        self.title("Copilot Monitor")
+        provider_label = PROVIDER_LABELS.get(account.provider, account.provider)
+        self.title(f"{account.display_title} · {provider_label}")
         self.overrideredirect(True)
-        apply_window_attributes(self, config.widget.always_on_top, config.widget.opacity)
-        self.geometry(f"+{config.widget.position_x}+{config.widget.position_y}")
+        apply_window_attributes(self, account.widget.always_on_top, account.widget.opacity)
+        self.geometry(f"+{account.widget.position_x}+{account.widget.position_y}")
         self.configure(bg=BG_APP)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        self._build_ui()
+        self._build_ui(provider_label)
         self.bind("<ButtonPress-1>", self._start_drag)
         self.bind("<B1-Motion>", self._on_drag)
         self.bind("<ButtonRelease-1>", self._end_drag)
-        self.bind("<Escape>", lambda _event: on_quit())
+        self.bind("<Escape>", lambda _event: self.on_close())
 
     def _card(self, parent: tk.Widget) -> tk.Frame:
         return tk.Frame(
@@ -62,7 +72,7 @@ class CopilotWidget(tk.Tk):
             highlightcolor=BG_CARD_BORDER,
         )
 
-    def _build_ui(self) -> None:
+    def _build_ui(self, provider_label: str) -> None:
         frame = tk.Frame(
             self,
             bg=BG_APP,
@@ -74,19 +84,49 @@ class CopilotWidget(tk.Tk):
         frame.pack(fill="both", expand=True)
 
         header = tk.Frame(frame, bg=BG_APP)
-        header.pack(fill="x")
+        header.pack(fill="x", pady=(0, 8))
+
+        header_left = tk.Frame(header, bg=BG_APP)
+        header_left.pack(side="left", fill="both", expand=True)
+
+        self._provider_icon = get_provider_icon(self, self.account.provider)
+        if self._provider_icon is not None:
+            self.icon_label = tk.Label(
+                header_left,
+                image=self._provider_icon,
+                bg=BG_APP,
+            )
+            self.icon_label.grid(row=0, column=0, rowspan=2, padx=(0, 8), sticky="n", pady=1)
 
         self.title_label = tk.Label(
-            header,
-            text="GitHub Copilot",
+            header_left,
+            text=self.account.display_title,
             font=ui_font(11, bold=True),
             fg=FG_PRIMARY,
             bg=BG_APP,
+            anchor="w",
         )
-        self.title_label.pack(side="left")
+        self.title_label.grid(row=0, column=1, sticky="w")
+
+        self.user_label = tk.Label(
+            header_left,
+            text=f"{provider_label} · @{self.account.display_username or '...'}",
+            font=ui_font(9),
+            fg=FG_MUTED,
+            bg=BG_APP,
+            anchor="w",
+        )
+        self.user_label.grid(row=1, column=1, sticky="w", pady=(2, 0))
+        header_left.grid_columnconfigure(1, weight=1)
+
+        header_right = tk.Frame(header, bg=BG_APP)
+        header_right.pack(side="right", anchor="ne")
+
+        controls = tk.Frame(header_right, bg=BG_APP)
+        controls.pack(anchor="ne")
 
         self.refresh_btn = tk.Label(
-            header,
+            controls,
             text="↻",
             font=ui_font(12),
             fg=FG_MUTED,
@@ -97,7 +137,7 @@ class CopilotWidget(tk.Tk):
         self.refresh_btn.bind("<Button-1>", lambda _e: self.refresh_now())
 
         self.close_btn = tk.Label(
-            header,
+            controls,
             text="×",
             font=ui_font(14),
             fg=FG_MUTED,
@@ -105,29 +145,16 @@ class CopilotWidget(tk.Tk):
             cursor="hand2",
         )
         self.close_btn.pack(side="right")
-        self.close_btn.bind("<Button-1>", lambda _e: self.on_quit())
-
-        user_row = tk.Frame(frame, bg=BG_APP)
-        user_row.pack(fill="x", pady=(4, 8))
-
-        self.user_label = tk.Label(
-            user_row,
-            text="@user",
-            font=ui_font(9),
-            fg=FG_MUTED,
-            bg=BG_APP,
-            anchor="w",
-        )
-        self.user_label.pack(side="left", anchor="w")
+        self.close_btn.bind("<Button-1>", lambda _e: self.on_close())
 
         status_card = tk.Frame(
-            user_row,
+            header_right,
             bg=BG_CARD,
             highlightthickness=1,
             highlightbackground=BG_CARD_BORDER,
             highlightcolor=BG_CARD_BORDER,
         )
-        status_card.pack(side="right", anchor="e")
+        status_card.pack(anchor="e", pady=(4, 0))
 
         self.status_badge = tk.Label(
             status_card,
@@ -156,6 +183,16 @@ class CopilotWidget(tk.Tk):
         )
         self.usage_label.pack(fill="x")
 
+        self.used_label = tk.Label(
+            main_card,
+            text="Used: --",
+            font=ui_font(10),
+            fg=FG_MUTED,
+            bg=BG_CARD,
+            anchor="w",
+        )
+        self.used_label.pack(fill="x", pady=(4, 0))
+
         self.limit_label = tk.Label(
             main_card,
             text="Monthly Limit: --",
@@ -164,7 +201,7 @@ class CopilotWidget(tk.Tk):
             bg=BG_CARD,
             anchor="w",
         )
-        self.limit_label.pack(fill="x", pady=(4, 0))
+        self.limit_label.pack(fill="x", pady=(2, 0))
 
         self.progress = ttk.Progressbar(main_card, mode="determinate", maximum=100)
         self.progress.pack(fill="x", pady=(10, 0))
@@ -179,9 +216,6 @@ class CopilotWidget(tk.Tk):
             "anchor": "w",
             "justify": "left",
         }
-
-        self.used_detail_label = tk.Label(details_card, text="—", **detail_style)
-        self.used_detail_label.pack(fill="x", pady=(2, 0))
 
         self.remaining_detail_label = tk.Label(details_card, text="—", **detail_style)
         self.remaining_detail_label.pack(fill="x", pady=(2, 0))
@@ -223,33 +257,34 @@ class CopilotWidget(tk.Tk):
 
     def _set_detail_labels(
         self,
-        used: str,
         remaining: str,
         plan: str,
         org: str,
         reset: str,
     ) -> None:
-        self.used_detail_label.configure(text=used)
         self.remaining_detail_label.configure(text=remaining)
         self.plan_detail_label.configure(text=plan)
         self.org_detail_label.configure(text=org)
         self.reset_detail_label.configure(text=reset)
 
     def _clear_details(self) -> None:
-        self._set_detail_labels("—", "—", "—", "—", "—")
+        self._set_detail_labels("—", "—", "—", "—")
 
     def refresh_now(self) -> None:
         usage = self.on_refresh()
         self.update_usage(usage)
 
-    def update_usage(self, usage: CopilotUsage) -> None:
-        bg, badge_bg, accent = STATUS_COLORS.get(usage.status, STATUS_COLORS[UsageStatus.UNKNOWN])
+    def update_usage(self, usage: AccountUsage) -> None:
+        _bg, badge_bg, accent = STATUS_COLORS.get(usage.status, STATUS_COLORS[UsageStatus.UNKNOWN])
 
-        self.user_label.configure(text=f"@{usage.username}")
+        provider_label = PROVIDER_LABELS.get(usage.provider, usage.provider)
+        handle = str(usage.username or "").strip() or "..."
+        self.user_label.configure(text=f"{provider_label} · @{handle}")
         self.status_badge.configure(text=usage.status_label, bg=badge_bg)
 
         if usage.status == UsageStatus.ERROR:
             self.usage_label.configure(text="Usage: --")
+            self.used_label.configure(text="Used: --")
             self.limit_label.configure(text="Monthly Limit: --")
             self.progress["value"] = 0
             self._clear_details()
@@ -259,39 +294,57 @@ class CopilotWidget(tk.Tk):
         self.error_label.configure(text="")
 
         if usage.unit == "USD":
-            used_amount = f"${usage.used:.2f}"
+            used_text = f"${usage.used:.2f}"
             limit_text = f"${usage.limit:.2f}" if usage.limit is not None else "N/A"
-            remaining_detail = f"${usage.remaining:.2f}" if usage.remaining is not None else "N/A"
-            unit_label = "USD"
+            remaining_detail = (
+                f"${usage.remaining:.2f}" if usage.remaining is not None else "N/A"
+            )
+        elif usage.unit == "%":
+            used_text = f"{usage.used:.1f}%"
+            limit_text = "100%"
+            remaining_detail = (
+                f"{usage.remaining:.1f}%" if usage.remaining is not None else "N/A"
+            )
         else:
-            used_amount = f"{usage.used:,.0f}"
+            used_text = f"{usage.used:,.0f}"
             limit_text = f"{usage.limit:,.0f}" if usage.limit is not None else "N/A"
-            remaining_detail = f"{usage.remaining:,.0f}" if usage.remaining is not None else "N/A"
-            unit_label = "tokens"
+            remaining_detail = (
+                f"{usage.remaining:,.0f}" if usage.remaining is not None else "N/A"
+            )
 
         if usage.percent_used is not None:
             self.usage_label.configure(text=f"Usage: {usage.percent_used:.1f}%")
         else:
-            self.usage_label.configure(text=f"Usage: {used_amount}")
+            self.usage_label.configure(text="Usage: --")
 
+        self.used_label.configure(text=f"Used: {used_text}")
         self.limit_label.configure(text=f"Monthly Limit: {limit_text}")
 
         if usage.percent_used is not None:
             self.progress["value"] = min(usage.percent_used, 100)
             self._configure_progress_style(accent)
 
+            fourth_line = "—"
+            if usage.organization:
+                if usage.provider == "github_copilot":
+                    fourth_line = f"Org: {usage.organization}"
+                else:
+                    fourth_line = f"Mix: {usage.organization}"
+
             self._set_detail_labels(
-                used=f"{used_amount} {unit_label} used",
                 remaining=f"Remaining: {remaining_detail}",
                 plan=f"Plan: {usage.plan}" if usage.plan else "—",
-                org=f"Org: {usage.organization}" if usage.organization else "—",
-                reset=f"Reset: {usage.period_label}" if usage.period_label else "—",
+                org=fourth_line,
+                reset=(
+                    f"Reset: {format_period_date(usage.period_label)}"
+                    if usage.period_label
+                    else "—"
+                ),
             )
         else:
             self.progress["value"] = 0
             self._configure_progress_style("#30363d")
             self._set_detail_labels(
-                used="—",
                 remaining="—",
                 plan="—",
                 org="—",
@@ -308,4 +361,8 @@ class CopilotWidget(tk.Tk):
         self.geometry(f"+{x}+{y}")
 
     def _end_drag(self, _event: tk.Event) -> None:
-        self.config_data.save_widget_position(self.winfo_x(), self.winfo_y())
+        self.monitor_config.save_widget_position(self.account.id, self.winfo_x(), self.winfo_y())
+
+
+# Backward-compatible alias
+CopilotWidget = AccountWidget

@@ -17,7 +17,11 @@ hiddenimports = [
     "platform_utils",
     "config",
     "github_api",
+    "cursor_api",
+    "usage_factory",
+    "usage_types",
     "widget",
+    "provider_icons",
 ]
 
 if sys.platform == "win32":
@@ -37,7 +41,10 @@ a = Analysis(
     [str(src / "main.py")],
     pathex=[str(src)],
     binaries=[],
-    datas=[(str(project_root / "config.example.json"), ".")],
+    datas=[
+        (str(project_root / "config.example.json"), "."),
+        (str(project_root / "assets" / "icons"), "assets/icons"),
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

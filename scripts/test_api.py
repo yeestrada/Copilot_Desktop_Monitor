@@ -1,11 +1,12 @@
-import json
-from pathlib import Path
-
 import requests
 
-cfg = json.loads(Path("config.json").read_text())
+from _config_loader import load_github_account
+
+cfg = load_github_account()
 token = cfg["token"]
 user = cfg["github_username"]
+organization = str(cfg.get("organization", "")).strip()
+enterprise = str(cfg.get("enterprise", "")).strip()
 headers = {
     "Authorization": f"Bearer {token}",
     "Accept": "application/vnd.github+json",
@@ -13,13 +14,11 @@ headers = {
 }
 base = "https://api.github.com"
 
-# Token scopes (classic PAT exposes this)
 r = requests.get(f"{base}/user", headers=headers, timeout=20)
 print("login:", r.json().get("login"))
 scopes = r.headers.get("X-OAuth-Scopes", "(no scopes header)")
 print("scopes:", scopes)
 
-# Orgs detail
 r = requests.get(f"{base}/user/orgs?per_page=100", headers=headers, timeout=20)
 for org in r.json():
     login = org.get("login")
@@ -38,13 +37,16 @@ for org in r.json():
             msg = resp.text[:60]
         print(f"  {resp.status_code} {path.split(login)[1]} :: {msg[:70]}")
 
-# Try enterprise list (if accessible)
-for ent in ["WEC", "wec", "WEC-Labs", "wec-labs"]:
+if enterprise:
+    params: dict[str, str] = {"user": user}
+    if organization:
+        params["organization"] = organization
     resp = requests.get(
-        f"{base}/enterprises/{ent}/settings/billing/premium_request/usage",
+        f"{base}/enterprises/{enterprise}/settings/billing/premium_request/usage",
         headers=headers,
-        params={"user": user, "organization": "WEC-Labs"},
+        params=params,
         timeout=20,
     )
-    if resp.status_code != 404:
-        print(f"enterprise {ent}: {resp.status_code} {resp.text[:100]}")
+    print(f"enterprise {enterprise}: {resp.status_code} {resp.text[:100]}")
+else:
+    print("enterprise: skipped (not set in config.json)")

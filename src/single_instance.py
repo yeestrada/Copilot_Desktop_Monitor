@@ -35,7 +35,7 @@ def ensure_single_instance() -> None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (OSError, BlockingIOError) as exc:
         handle.close()
-        raise SingleInstanceError("Copilot Monitor is already running.") from exc
+        raise SingleInstanceError("Usage Monitor is already running.") from exc
 
     handle.seek(0)
     handle.truncate()
@@ -84,10 +84,10 @@ def notify_already_running() -> None:
         root.withdraw()
         root.attributes("-topmost", True)
         messagebox.showinfo(
-            "Copilot Monitor",
-            "Copilot Monitor is already running.",
+            "Usage Monitor",
+            "Usage Monitor is already running.",
             parent=root,
         )
         root.destroy()
     except Exception:
-        print("Copilot Monitor is already running.", file=sys.stderr)
+        print("Usage Monitor is already running.", file=sys.stderr)

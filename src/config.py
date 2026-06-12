@@ -33,7 +33,13 @@ PLAN_LIMITS_CREDITS = {
     "enterprise": 39.0,
 }
 
-DEFAULT_CONFIG: dict[str, Any] = {
+PROVIDERS = {"github_copilot", "cursor"}
+
+DEFAULT_ACCOUNT: dict[str, Any] = {
+    "id": "",
+    "label": "",
+    "provider": "github_copilot",
+    "enabled": True,
     "github_username": "",
     "token": "",
     "account_type": "user",
@@ -43,19 +49,39 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "billing_mode": "auto",
     "data_source": "auto",
     "monthly_limit": None,
+    "session_token": "",
+    "api_key": "",
+    "cursor_auth_mode": "auto",
+    "api_base_url": "https://api2.cursor.sh",
+    "admin_api_base_url": "https://api.cursor.com",
+    "cursor_email": "",
+    "included_model_key": "gpt-4",
+    "thresholds": {
+        "warning_percent": 75,
+        "critical_percent": 90,
+    },
+    "widget": {
+        "enabled": True,
+        "always_on_top": True,
+        "opacity": 0.92,
+        "position": {"x": 50, "y": 50},
+    },
+}
+
+DEFAULT_CONFIG: dict[str, Any] = {
     "refresh_interval_seconds": 300,
     "thresholds": {
         "warning_percent": 75,
         "critical_percent": 90,
     },
-    "autostart": {
-        "enabled": True,
-    },
     "widget": {
         "always_on_top": True,
         "opacity": 0.92,
-        "position": {"x": 50, "y": 50},
     },
+    "autostart": {
+        "enabled": True,
+    },
+    "accounts": [],
 }
 
 
@@ -67,6 +93,7 @@ class Thresholds:
 
 @dataclass
 class WidgetSettings:
+    enabled: bool = True
     always_on_top: bool = True
     opacity: float = 0.92
     position_x: int = 50
@@ -79,9 +106,13 @@ class AutostartSettings:
 
 
 @dataclass
-class AppConfig:
-    github_username: str
-    token: str
+class AccountConfig:
+    id: str
+    label: str
+    provider: str
+    enabled: bool = True
+    github_username: str = ""
+    token: str = ""
     account_type: str = "user"
     organization: str = ""
     enterprise: str = ""
@@ -89,90 +120,32 @@ class AppConfig:
     billing_mode: str = "auto"
     data_source: str = "auto"
     monthly_limit: float | None = None
-    refresh_interval_seconds: int = 300
+    session_token: str = ""
+    api_key: str = ""
+    cursor_auth_mode: str = "auto"
+    api_base_url: str = "https://api2.cursor.sh"
+    admin_api_base_url: str = "https://api.cursor.com"
+    cursor_email: str = ""
+    included_model_key: str = "gpt-4"
     thresholds: Thresholds = field(default_factory=Thresholds)
-    autostart: AutostartSettings = field(default_factory=AutostartSettings)
     widget: WidgetSettings = field(default_factory=WidgetSettings)
 
-    @classmethod
-    def load(cls, path: Path | None = None) -> "AppConfig":
-        config_path = path or CONFIG_PATH
-        if not config_path.exists():
-            if EXAMPLE_CONFIG_PATH.exists():
-                data = _read_json(EXAMPLE_CONFIG_PATH)
-            else:
-                data = deepcopy(DEFAULT_CONFIG)
-            _write_json(config_path, data)
-            raise FileNotFoundError(
-                f"Created {config_path.name}. Edit it with your username and token, then run again."
-            )
+    @property
+    def display_title(self) -> str:
+        if self.label:
+            return self.label
+        if self.provider == "cursor":
+            return "Cursor"
+        return "GitHub Copilot"
 
-        data = _read_json(config_path)
-        merged = deepcopy(DEFAULT_CONFIG)
-        _deep_merge(merged, data)
-
-        widget = merged.get("widget", {})
-        position = widget.get("position", {})
-        autostart = merged.get("autostart", {})
-
-        return cls(
-            github_username=str(merged.get("github_username", "")).strip(),
-            token=str(merged.get("token", "")).strip(),
-            account_type=str(merged.get("account_type", "user")).strip().lower(),
-            organization=str(merged.get("organization", "")).strip(),
-            enterprise=str(merged.get("enterprise", "")).strip(),
-            plan=str(merged.get("plan", "pro")).strip().lower(),
-            billing_mode=str(merged.get("billing_mode", "auto")).strip().lower(),
-            data_source=str(merged.get("data_source", "auto")).strip().lower(),
-            monthly_limit=merged.get("monthly_limit"),
-            refresh_interval_seconds=int(merged.get("refresh_interval_seconds", 300)),
-            thresholds=Thresholds(
-                warning_percent=float(merged["thresholds"]["warning_percent"]),
-                critical_percent=float(merged["thresholds"]["critical_percent"]),
-            ),
-            autostart=AutostartSettings(
-                enabled=bool(autostart.get("enabled", True)),
-            ),
-            widget=WidgetSettings(
-                always_on_top=bool(widget.get("always_on_top", True)),
-                opacity=float(widget.get("opacity", 0.92)),
-                position_x=int(position.get("x", 50)),
-                position_y=int(position.get("y", 50)),
-            ),
-        )
-
-    def save_widget_position(self, x: int, y: int) -> None:
-        data = _read_json(CONFIG_PATH)
-        data.setdefault("widget", {})
-        data["widget"].setdefault("position", {})
-        data["widget"]["position"]["x"] = x
-        data["widget"]["position"]["y"] = y
-        _write_json(CONFIG_PATH, data)
-
-    def save_autostart_enabled(self, enabled: bool) -> None:
-        data = _read_json(CONFIG_PATH)
-        data.setdefault("autostart", {})
-        data["autostart"]["enabled"] = enabled
-        _write_json(CONFIG_PATH, data)
-        self.autostart.enabled = enabled
-
-    def validate(self) -> list[str]:
-        errors: list[str] = []
-        if not self.github_username:
-            errors.append("Missing github_username in config.json")
-        if not self.token:
-            errors.append("Missing token in config.json")
-        if self.account_type not in {"user", "organization", "enterprise"}:
-            errors.append("account_type must be 'user', 'organization', or 'enterprise'")
-        if self.account_type == "organization" and not self.organization:
-            errors.append("organization is required when account_type is 'organization'")
-        if self.account_type == "enterprise" and not self.enterprise:
-            errors.append("enterprise is required when account_type is 'enterprise'")
-        if self.billing_mode not in {"auto", "premium_requests", "ai_credits"}:
-            errors.append("billing_mode must be auto, premium_requests, or ai_credits")
-        if self.data_source not in {"auto", "copilot_internal", "billing_api"}:
-            errors.append("data_source must be auto, copilot_internal, or billing_api")
-        return errors
+    @property
+    def display_username(self) -> str:
+        if self.provider == "cursor":
+            email = self.cursor_email.strip()
+            if email and "@" in email:
+                return email.split("@", 1)[0]
+            return email
+        return self.github_username
 
     def resolve_monthly_limit(self, billing_mode: str, api_limit: float | None) -> float | None:
         if self.monthly_limit is not None:
@@ -183,6 +156,243 @@ class AppConfig:
         if billing_mode == "ai_credits":
             return PLAN_LIMITS_CREDITS.get(plan)
         return float(PLAN_LIMITS_PREMIUM.get(plan, 0)) or None
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        prefix = f"Account '{self.id or self.label or '?'}'"
+
+        if not self.id:
+            errors.append(f"{prefix}: missing id")
+        if not self.label:
+            errors.append(f"{prefix}: missing label")
+        if self.provider not in PROVIDERS:
+            errors.append(f"{prefix}: provider must be one of {', '.join(sorted(PROVIDERS))}")
+
+        if self.provider == "github_copilot":
+            if not self.github_username:
+                errors.append(f"{prefix}: missing github_username")
+            if not self.token:
+                errors.append(f"{prefix}: missing token")
+            if self.account_type not in {"user", "organization", "enterprise"}:
+                errors.append(f"{prefix}: account_type must be user, organization, or enterprise")
+            if self.account_type == "organization" and not self.organization:
+                errors.append(f"{prefix}: organization is required for organization accounts")
+            if self.account_type == "enterprise" and not self.enterprise:
+                errors.append(f"{prefix}: enterprise is required for enterprise accounts")
+            if self.billing_mode not in {"auto", "premium_requests", "ai_credits"}:
+                errors.append(f"{prefix}: billing_mode must be auto, premium_requests, or ai_credits")
+            if self.data_source not in {"auto", "copilot_internal", "billing_api"}:
+                errors.append(f"{prefix}: data_source must be auto, copilot_internal, or billing_api")
+
+        if self.provider == "cursor":
+            if self.cursor_auth_mode not in {"auto", "session", "admin_api"}:
+                errors.append(f"{prefix}: cursor_auth_mode must be auto, session, or admin_api")
+            if self.cursor_auth_mode == "admin_api":
+                if not self.api_key:
+                    errors.append(f"{prefix}: missing api_key for Cursor admin API")
+                if not self.cursor_email:
+                    errors.append(f"{prefix}: missing cursor_email for Cursor admin API")
+            elif not self.api_key and not self.session_token:
+                errors.append(f"{prefix}: provide api_key and/or session_token for Cursor")
+
+        return errors
+
+
+@dataclass
+class MonitorConfig:
+    accounts: list[AccountConfig]
+    refresh_interval_seconds: int = 300
+    thresholds: Thresholds = field(default_factory=Thresholds)
+    widget_defaults: WidgetSettings = field(default_factory=WidgetSettings)
+    autostart: AutostartSettings = field(default_factory=AutostartSettings)
+
+    @classmethod
+    def load(cls, path: Path | None = None) -> "MonitorConfig":
+        config_path = path or CONFIG_PATH
+        if not config_path.exists():
+            if EXAMPLE_CONFIG_PATH.exists():
+                data = _read_json(EXAMPLE_CONFIG_PATH)
+            else:
+                data = deepcopy(DEFAULT_CONFIG)
+            _write_json(config_path, data)
+            raise FileNotFoundError(
+                f"Created {config_path.name}. Edit it with your accounts, then run again."
+            )
+
+        raw = _read_json(config_path)
+        data = _normalize_config(raw)
+        if data != raw:
+            _write_json(config_path, data)
+
+        return cls._from_dict(data)
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> "MonitorConfig":
+        global_thresholds = data.get("thresholds", {})
+        global_widget = data.get("widget", {})
+        autostart = data.get("autostart", {})
+
+        accounts: list[AccountConfig] = []
+        for index, raw_account in enumerate(data.get("accounts", [])):
+            merged = deepcopy(DEFAULT_ACCOUNT)
+            _deep_merge(merged, raw_account)
+
+            account_thresholds = merged.get("thresholds", {})
+            widget = merged.get("widget", {})
+            position = widget.get("position", {})
+
+            account_id = str(merged.get("id", "")).strip() or f"account-{index + 1}"
+            label = str(merged.get("label", "")).strip() or account_id
+
+            accounts.append(
+                AccountConfig(
+                    id=account_id,
+                    label=label,
+                    provider=str(merged.get("provider", "github_copilot")).strip().lower(),
+                    enabled=bool(merged.get("enabled", True)),
+                    github_username=str(merged.get("github_username", "")).strip(),
+                    token=str(merged.get("token", "")).strip(),
+                    account_type=str(merged.get("account_type", "user")).strip().lower(),
+                    organization=str(merged.get("organization", "")).strip(),
+                    enterprise=str(merged.get("enterprise", "")).strip(),
+                    plan=str(merged.get("plan", "pro")).strip().lower(),
+                    billing_mode=str(merged.get("billing_mode", "auto")).strip().lower(),
+                    data_source=str(merged.get("data_source", "auto")).strip().lower(),
+                    monthly_limit=merged.get("monthly_limit"),
+                    session_token=str(merged.get("session_token", "")).strip(),
+                    api_key=str(merged.get("api_key", "")).strip(),
+                    cursor_auth_mode=str(merged.get("cursor_auth_mode", "auto")).strip().lower(),
+                    api_base_url=str(merged.get("api_base_url", "https://api2.cursor.sh")).strip().rstrip("/"),
+                    admin_api_base_url=str(
+                        merged.get("admin_api_base_url", "https://api.cursor.com")
+                    ).strip().rstrip("/"),
+                    cursor_email=str(merged.get("cursor_email", "")).strip(),
+                    included_model_key=str(merged.get("included_model_key", "gpt-4")).strip(),
+                    thresholds=Thresholds(
+                        warning_percent=float(
+                            account_thresholds.get(
+                                "warning_percent", global_thresholds.get("warning_percent", 75)
+                            )
+                        ),
+                        critical_percent=float(
+                            account_thresholds.get(
+                                "critical_percent", global_thresholds.get("critical_percent", 90)
+                            )
+                        ),
+                    ),
+                    widget=WidgetSettings(
+                        enabled=bool(widget.get("enabled", True)),
+                        always_on_top=bool(
+                            widget.get("always_on_top", global_widget.get("always_on_top", True))
+                        ),
+                        opacity=float(widget.get("opacity", global_widget.get("opacity", 0.92))),
+                        position_x=int(position.get("x", 50 + index * 30)),
+                        position_y=int(position.get("y", 50 + index * 130)),
+                    ),
+                )
+            )
+
+        return cls(
+            accounts=accounts,
+            refresh_interval_seconds=int(data.get("refresh_interval_seconds", 300)),
+            thresholds=Thresholds(
+                warning_percent=float(global_thresholds.get("warning_percent", 75)),
+                critical_percent=float(global_thresholds.get("critical_percent", 90)),
+            ),
+            widget_defaults=WidgetSettings(
+                always_on_top=bool(global_widget.get("always_on_top", True)),
+                opacity=float(global_widget.get("opacity", 0.92)),
+            ),
+            autostart=AutostartSettings(enabled=bool(autostart.get("enabled", True))),
+        )
+
+    def enabled_accounts(self) -> list[AccountConfig]:
+        return [account for account in self.accounts if account.enabled and account.widget.enabled]
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        if not self.accounts:
+            errors.append("No accounts configured. Add at least one entry to accounts[] in config.json")
+        for account in self.accounts:
+            if account.enabled:
+                errors.extend(account.validate())
+        return errors
+
+    def save_widget_position(self, account_id: str, x: int, y: int) -> None:
+        data = _read_json(CONFIG_PATH)
+        for account in data.get("accounts", []):
+            if str(account.get("id")) == account_id:
+                account.setdefault("widget", {})
+                account["widget"].setdefault("position", {})
+                account["widget"]["position"]["x"] = x
+                account["widget"]["position"]["y"] = y
+                break
+        _write_json(CONFIG_PATH, data)
+
+    def save_autostart_enabled(self, enabled: bool) -> None:
+        data = _read_json(CONFIG_PATH)
+        data.setdefault("autostart", {})
+        data["autostart"]["enabled"] = enabled
+        _write_json(CONFIG_PATH, data)
+        self.autostart.enabled = enabled
+
+
+# Backward-compatible alias
+AppConfig = MonitorConfig
+
+
+def _normalize_config(data: dict[str, Any]) -> dict[str, Any]:
+    if "accounts" in data:
+        merged = deepcopy(DEFAULT_CONFIG)
+        _deep_merge(merged, data)
+        return merged
+
+    if not any(data.get(key) for key in ("github_username", "token", "session_token", "api_key")):
+        merged = deepcopy(DEFAULT_CONFIG)
+        _deep_merge(merged, data)
+        return merged
+
+    legacy_widget = data.get("widget", {})
+    position = legacy_widget.get("position", {})
+
+    account = deepcopy(DEFAULT_ACCOUNT)
+    account.update(
+        {
+            "id": "default",
+            "label": "GitHub Copilot",
+            "provider": "github_copilot",
+            "enabled": True,
+            "github_username": data.get("github_username", ""),
+            "token": data.get("token", ""),
+            "account_type": data.get("account_type", "user"),
+            "organization": data.get("organization", ""),
+            "enterprise": data.get("enterprise", ""),
+            "plan": data.get("plan", "pro"),
+            "billing_mode": data.get("billing_mode", "auto"),
+            "data_source": data.get("data_source", "auto"),
+            "monthly_limit": data.get("monthly_limit"),
+            "widget": {
+                "enabled": True,
+                "always_on_top": legacy_widget.get("always_on_top", True),
+                "opacity": legacy_widget.get("opacity", 0.92),
+                "position": {
+                    "x": position.get("x", 50),
+                    "y": position.get("y", 50),
+                },
+            },
+        }
+    )
+
+    normalized = deepcopy(DEFAULT_CONFIG)
+    normalized["refresh_interval_seconds"] = data.get("refresh_interval_seconds", 300)
+    normalized["thresholds"] = data.get("thresholds", normalized["thresholds"])
+    normalized["widget"] = {
+        "always_on_top": legacy_widget.get("always_on_top", True),
+        "opacity": legacy_widget.get("opacity", 0.92),
+    }
+    normalized["autostart"] = data.get("autostart", normalized["autostart"])
+    normalized["accounts"] = [account]
+    return normalized
 
 
 def _read_json(path: Path) -> dict[str, Any]:

@@ -1,9 +1,10 @@
 import json
-from pathlib import Path
 
 import requests
 
-cfg = json.loads(Path("config.json").read_text())
+from _config_loader import load_github_account
+
+cfg = load_github_account()
 token = cfg["token"]
 headers = {
     "Authorization": f"Bearer {token}",
