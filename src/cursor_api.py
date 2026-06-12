@@ -332,12 +332,12 @@ def _parse_dashboard_period_usage(
     else:
         used = None
 
-    period_start = root.get("billingCycleStart")
+    period_reset = root.get("billingCycleEnd") or root.get("billingCycleStart")
     if limit is None or limit <= 0 or used is None:
-        return {"period_start": period_start}
+        return {"period_start": period_reset}
 
     return {
-        "period_start": period_start,
+        "period_start": period_reset,
         "plan_name": str(root.get("membershipType") or "plan"),
         "remaining_override": remaining,
         "included": IncludedBucket(
@@ -371,7 +371,7 @@ def _parse_general_plan_summary(payload: dict[str, Any]) -> dict[str, Any]:
             return {}
 
     return {
-        "period_start": payload.get("billingCycleStart"),
+        "period_start": payload.get("billingCycleEnd") or payload.get("billingCycleStart"),
         "plan_name": str(payload.get("membershipType") or "plan"),
         "remaining_override": remaining,
         "total_percent_used": _to_float(plan.get("totalPercentUsed")),
@@ -419,6 +419,7 @@ def _parse_auth_usage(payload: dict[str, Any], preferred_model_key: str) -> dict
     return {
         "period_start": _first_str(
             payload,
+            "billingCycleEnd",
             "startOfMonth",
             "periodStart",
             "cycleStart",
