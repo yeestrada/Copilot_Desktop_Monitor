@@ -1,0 +1,27 @@
+{
+  "github_username": "your-username",
+  "token": "ghp_your_classic_or_fine_grained_token",
+  "account_type": "user",
+  "organization": "",
+  "enterprise": "",
+  "plan": "pro",
+  "billing_mode": "auto",
+  "data_source": "auto",
+  "monthly_limit": null,
+  "refresh_interval_seconds": 300,
+  "thresholds": {
+    "warning_percent": 75,
+    "critical_percent": 90
+  },
+  "autostart": {
+    "enabled": true
+  },
+  "widget": {
+    "always_on_top": true,
+    "opacity": 0.92,
+    "position": {
+      "x": 50,
+      "y": 50
+    }
+  }
+}
