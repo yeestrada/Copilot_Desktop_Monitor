@@ -56,10 +56,6 @@ DEFAULT_ACCOUNT: dict[str, Any] = {
     "admin_api_base_url": "https://api.cursor.com",
     "cursor_email": "",
     "included_model_key": "gpt-4",
-    "thresholds": {
-        "warning_percent": 75,
-        "critical_percent": 90,
-    },
     "widget": {
         "enabled": True,
         "always_on_top": True,
@@ -237,7 +233,8 @@ class MonitorConfig:
             merged = deepcopy(DEFAULT_ACCOUNT)
             _deep_merge(merged, raw_account)
 
-            account_thresholds = merged.get("thresholds", {})
+            raw_thresholds = raw_account.get("thresholds")
+            account_thresholds = raw_thresholds if isinstance(raw_thresholds, dict) else {}
             widget = merged.get("widget", {})
             position = widget.get("position", {})
 

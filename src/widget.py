@@ -11,7 +11,7 @@ from platform_utils import apply_window_attributes, format_period_date, ui_font
 
 STATUS_COLORS = {
     UsageStatus.OK: ("#0d1117", "#238636", "#3fb950"),
-    UsageStatus.WARNING: ("#0d1117", "#9a6700", "#d29922"),
+    UsageStatus.WARNING: ("#0d1117", "#9a6700", "#e3b341"),
     UsageStatus.CRITICAL: ("#0d1117", "#bc4c00", "#f0883e"),
     UsageStatus.EXCEEDED: ("#0d1117", "#8b1a1a", "#f85149"),
     UsageStatus.UNKNOWN: ("#0d1117", "#30363d", "#8b949e"),
@@ -203,7 +203,13 @@ class AccountWidget(tk.Toplevel):
         )
         self.limit_label.pack(fill="x", pady=(2, 0))
 
-        self.progress = ttk.Progressbar(main_card, mode="determinate", maximum=100)
+        self._progress_style = f"Usage.{self.account.id}.Horizontal.TProgressbar"
+        self.progress = ttk.Progressbar(
+            main_card,
+            mode="determinate",
+            maximum=100,
+            style=self._progress_style,
+        )
         self.progress.pack(fill="x", pady=(10, 0))
 
         details_card = self._card(content)
@@ -229,7 +235,6 @@ class AccountWidget(tk.Toplevel):
         self.reset_detail_label = tk.Label(details_card, text="—", **detail_style)
         self.reset_detail_label.pack(fill="x", pady=(2, 0))
 
-        self.progress.configure(style="Copilot.Horizontal.TProgressbar")
         self._configure_progress_style("#238636")
 
         self.error_label = tk.Label(
@@ -248,7 +253,7 @@ class AccountWidget(tk.Toplevel):
         style = ttk.Style(self)
         style.theme_use("default")
         style.configure(
-            "Copilot.Horizontal.TProgressbar",
+            self._progress_style,
             troughcolor="#21262d",
             background=accent,
             thickness=8,
@@ -283,7 +288,7 @@ class AccountWidget(tk.Toplevel):
         self.status_badge.configure(text=usage.status_label, bg=badge_bg)
 
         if usage.status == UsageStatus.ERROR:
-            self.usage_label.configure(text="Usage: --")
+            self.usage_label.configure(text="Usage: --", fg=FG_PRIMARY)
             self.used_label.configure(text="Used: --")
             self.limit_label.configure(text="Monthly Limit: --")
             self.progress["value"] = 0
@@ -312,10 +317,11 @@ class AccountWidget(tk.Toplevel):
                 f"{usage.remaining:,.0f}" if usage.remaining is not None else "N/A"
             )
 
+        usage_fg = accent if usage.status != UsageStatus.OK else FG_PRIMARY
         if usage.percent_used is not None:
-            self.usage_label.configure(text=f"Usage: {usage.percent_used:.1f}%")
+            self.usage_label.configure(text=f"Usage: {usage.percent_used:.1f}%", fg=usage_fg)
         else:
-            self.usage_label.configure(text="Usage: --")
+            self.usage_label.configure(text="Usage: --", fg=FG_PRIMARY)
 
         self.used_label.configure(text=f"Used: {used_text}")
         self.limit_label.configure(text=f"Monthly Limit: {limit_text}")
