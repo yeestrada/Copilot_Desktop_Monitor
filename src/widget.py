@@ -23,6 +23,7 @@ PROVIDER_LABELS = {
     "github_copilot": "GitHub Copilot",
     "cursor": "Cursor",
     "openai": "OpenAI",
+    "siliconflow": "SiliconFlow",
 }
 
 BG_APP = "#0d1117"
@@ -353,7 +354,7 @@ class AccountWidget(tk.Toplevel):
         self.used_label.configure(text=f"Used: {used_text}")
         limit_title = (
             "Credit Limit"
-            if usage.billing_mode == "openai_credits"
+            if usage.billing_mode in {"openai_credits", "siliconflow_balance"}
             else "Monthly Limit"
         )
         self.limit_label.configure(text=f"{limit_title}: {limit_text}")
@@ -371,10 +372,18 @@ class AccountWidget(tk.Toplevel):
                         fourth_line = usage.organization
                     else:
                         fourth_line = f"Top: {usage.organization}"
+                elif usage.provider == "siliconflow":
+                    fourth_line = usage.organization
                 else:
                     fourth_line = f"Mix: {usage.organization}"
 
-            reset_prefix = "Expires" if usage.billing_mode == "openai_credits" else "Reset"
+            reset_prefix = (
+                "Expires"
+                if usage.billing_mode == "openai_credits"
+                else "Period"
+                if usage.billing_mode == "siliconflow_balance"
+                else "Reset"
+            )
             self._set_detail_labels(
                 remaining=f"Remaining: {remaining_detail}",
                 plan=f"Plan: {usage.plan}" if usage.plan else "—",

@@ -33,7 +33,7 @@ PLAN_LIMITS_CREDITS = {
     "enterprise": 39.0,
 }
 
-PROVIDERS = {"github_copilot", "cursor", "openai"}
+PROVIDERS = {"github_copilot", "cursor", "openai", "siliconflow"}
 
 DEFAULT_ACCOUNT: dict[str, Any] = {
     "id": "",
@@ -134,6 +134,8 @@ class AccountConfig:
             return "Cursor"
         if self.provider == "openai":
             return "OpenAI"
+        if self.provider == "siliconflow":
+            return "SiliconFlow"
         return "GitHub Copilot"
 
     @property
@@ -144,6 +146,8 @@ class AccountConfig:
                 return email.split("@", 1)[0]
             return email
         if self.provider == "openai":
+            return self.organization.strip()
+        if self.provider == "siliconflow":
             return self.organization.strip()
         return self.github_username
 
@@ -199,6 +203,17 @@ class AccountConfig:
             if not self.session_token:
                 errors.append(
                     f"{prefix}: missing session_token (browser JWT Bearer from platform.openai.com)"
+                )
+
+        if self.provider == "siliconflow":
+            if not self.session_token:
+                errors.append(
+                    f"{prefix}: missing session_token (Cookie header from "
+                    "cloud.siliconflow.com wallet peek)"
+                )
+            if not self.organization:
+                errors.append(
+                    f"{prefix}: missing organization (x-subject-id from wallet peek headers)"
                 )
 
         return errors

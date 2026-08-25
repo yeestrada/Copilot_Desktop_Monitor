@@ -1,12 +1,12 @@
 # Copilot Desktop Monitor
 
-Cross-platform desktop widget (Windows, macOS, Linux) that monitors monthly AI usage for **GitHub Copilot**, **Cursor**, and **OpenAI API**. Each configured account gets its own floating widget, provider icon, and independent refresh cycle.
+Cross-platform desktop widget (Windows, macOS, Linux) that monitors monthly AI usage for **GitHub Copilot**, **Cursor**, **OpenAI API**, and **SiliconFlow**. Each configured account gets its own floating widget, provider icon, and independent refresh cycle.
 
 ## Features
 
-- One widget per account (mix Copilot, Cursor, and OpenAI in the same app)
+- One widget per account (mix Copilot, Cursor, OpenAI, and SiliconFlow in the same app)
 - Unified layout across providers: usage %, used amount, monthly limit, progress bar, and detail panel
-- Provider icons in the widget header (GitHub Copilot / Cursor / OpenAI)
+- Provider icons in the widget header (GitHub Copilot / Cursor / OpenAI / SiliconFlow)
 - System tray with per-account refresh, autostart toggle, and quit
 - Draggable widgets with saved position per account
 - Optional login autostart (Windows, macOS, Linux)
@@ -86,6 +86,15 @@ Edit `config.json` and add one or more entries under `accounts[]`:
       "enabled": true,
       "session_token": "sess-your_openai_dashboard_session_token",
       "widget": { "position": { "x": 50, "y": 350 } }
+    },
+    {
+      "id": "siliconflow-main",
+      "label": "SiliconFlow",
+      "provider": "siliconflow",
+      "enabled": true,
+      "session_token": "paste_full_Cookie_header_here",
+      "organization": "your_x_subject_id",
+      "widget": { "position": { "x": 50, "y": 480 } }
     }
   ]
 }
@@ -123,7 +132,7 @@ Only one app instance runs at a time. If nothing appears, check the system tray 
 |---|---|---|
 | `id` | Yes | Unique account identifier (used to save widget position) |
 | `label` | Yes | Widget title (e.g. `Copilot Personal`, `Cursor`) |
-| `provider` | Yes | `github_copilot`, `cursor`, or `openai` |
+| `provider` | Yes | `github_copilot`, `cursor`, `openai`, or `siliconflow` |
 | `enabled` | No | `false` keeps the account in config but hides its widget |
 | `thresholds` | No | Per-account override of global warning/critical % |
 | `widget.enabled` | No | `false` hides only this account's widget |
@@ -310,6 +319,61 @@ If remaining is **$0**, usage shows **100%** / **Limit reached**.
 
 ---
 
+## SiliconFlow setup
+
+This monitors your **SiliconFlow wallet balance**. The old public endpoint `GET /v1/user/info` was retired (HTTP 410). The monitor uses the same wallet API as the billing UI.
+
+### Browser session (required)
+
+1. Log in at [cloud.siliconflow.com](https://cloud.siliconflow.com)
+2. Open [Expense / billing](https://cloud.siliconflow.com/me/expensebill)
+3. DevTools (`F12`) → **Network** → filter **Fetch/XHR**
+4. Find:
+
+   `GET https://cloud.siliconflow.com/walletd-server/api/v1/subject/profile/peek`
+
+   (Status **200**, `content-type: application/json`)
+5. Copy from **Request Headers**:
+   - **`Cookie`** → paste into `session_token` (full cookie string)
+   - **`x-subject-id`** → paste into `organization`
+6. Save `config.json` and refresh the widget
+
+**Important (Firefox):** the Cookie header preview often ends with `…` (ellipsis). That truncated value is **invalid**. Click the Cookie row → copy the **full** value (or use **Raw** headers / Storage → Cookies and rebuild `name=value; …`). The string must be pure ASCII with **no** `…` character.
+
+Example:
+
+```json
+{
+  "id": "siliconflow-main",
+  "label": "SiliconFlow",
+  "provider": "siliconflow",
+  "enabled": true,
+  "session_token": "paste_full_Cookie_header_here",
+  "organization": "your_x_subject_id",
+  "widget": { "position": { "x": 50, "y": 500 } }
+}
+```
+
+Cookies expire. If the widget shows **Error** / 401 / 403, copy a fresh `Cookie` + `x-subject-id` from `profile/peek`.
+
+**Note:** Amounts in the JSON are scaled by `1e12` (e.g. `"5000000000000"` → `$5.00`). The app converts them automatically.
+
+### Account fields
+
+| Field | Description |
+|---|---|
+| `session_token` | Full browser **`Cookie`** header from `profile/peek` — **required** |
+| `organization` | **`x-subject-id`** request header from the same call — **required** |
+
+### What the widget shows (SiliconFlow)
+
+| Area | Content |
+|---|---|
+| Left panel | Usage % (`used / recharged`), Used, **Credit Limit** (`recharged`) |
+| Right panel | Remaining (`available`), plan, recharge summary |
+
+---
+
 ## Using the application
 
 ### Widget controls
@@ -422,6 +486,10 @@ Docs: https://cursor.com/docs/account/teams/admin-api
 
 - `GET https://api.openai.com/v1/dashboard/billing/credit_grants` — credit balance (`Authorization: Bearer sess-...` from the platform dashboard)
 
+### SiliconFlow
+
+- `GET https://cloud.siliconflow.com/walletd-server/api/v1/subject/profile/peek` — wallet `financialInfo` (browser Cookie + `x-subject-id`)
+
 ---
 
 ## Troubleshooting
@@ -431,6 +499,7 @@ Docs: https://cursor.com/docs/account/teams/admin-api
 | Widget shows **Error** (Cursor) | Refresh `session_token` from browser cookies |
 | Widget shows **Error** (Copilot) | Regenerate token; ensure `copilot` / Plan read scope |
 | Widget shows **Error** (OpenAI) | Refresh `session_token` from Network → `credit_grants` → `Authorization: Bearer sess-...` |
+| Widget shows **Error** (SiliconFlow) | Refresh `session_token` (Cookie) and `organization` (`x-subject-id`) from Network → `profile/peek`. If the message mentions `latin-1` or `…`, the Cookie was truncated — copy the full header. |
 | App starts but no window | Another instance may be running — check system tray |
 | `run.bat` fails on Windows | Use `py -3 src\main.py` or recreate `.venv` with `py -3 -m venv .venv` |
 | Cursor % and counts look odd | The app uses dashboard % as source of truth; raw event counts from the API are not shown directly |
@@ -466,6 +535,7 @@ Copilot_Desktop_Monitor/
 │   ├── github_api.py      # GitHub Copilot usage client
 │   ├── cursor_api.py      # Cursor usage client
 │   ├── openai_api.py      # OpenAI credit balance client (sess- token)
+│   ├── siliconflow_api.py # SiliconFlow wallet client (Cookie + x-subject-id)
 │   └── provider_icons.py  # Header icon loader
 ├── run.bat / run.sh       # Launch scripts
 └── requirements.txt
