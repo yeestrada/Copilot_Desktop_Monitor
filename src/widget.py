@@ -21,6 +21,7 @@ STATUS_COLORS = {
 PROVIDER_LABELS = {
     "github_copilot": "GitHub Copilot",
     "cursor": "Cursor",
+    "openai": "OpenAI",
 }
 
 BG_APP = "#0d1117"
@@ -334,6 +335,8 @@ class AccountWidget(tk.Toplevel):
             if usage.organization:
                 if usage.provider == "github_copilot":
                     fourth_line = f"Org: {usage.organization}"
+                elif usage.provider == "openai":
+                    fourth_line = f"Top: {usage.organization}"
                 else:
                     fourth_line = f"Mix: {usage.organization}"
 

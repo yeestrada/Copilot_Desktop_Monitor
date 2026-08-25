@@ -1,12 +1,12 @@
 # Copilot Desktop Monitor
 
-Cross-platform desktop widget (Windows, macOS, Linux) that monitors monthly AI usage for **GitHub Copilot** and **Cursor**. Each configured account gets its own floating widget, provider icon, and independent refresh cycle.
+Cross-platform desktop widget (Windows, macOS, Linux) that monitors monthly AI usage for **GitHub Copilot**, **Cursor**, and **OpenAI API**. Each configured account gets its own floating widget, provider icon, and independent refresh cycle.
 
 ## Features
 
-- One widget per account (mix Copilot and Cursor in the same app)
+- One widget per account (mix Copilot, Cursor, and OpenAI in the same app)
 - Unified layout across providers: usage %, used amount, monthly limit, progress bar, and detail panel
-- Provider icons in the widget header (GitHub Copilot / Cursor)
+- Provider icons in the widget header (GitHub Copilot / Cursor / OpenAI)
 - System tray with per-account refresh, autostart toggle, and quit
 - Draggable widgets with saved position per account
 - Optional login autostart (Windows, macOS, Linux)
@@ -78,6 +78,15 @@ Edit `config.json` and add one or more entries under `accounts[]`:
       "session_token": "your_cursor_session_token",
       "cursor_auth_mode": "auto",
       "widget": { "position": { "x": 50, "y": 220 } }
+    },
+    {
+      "id": "openai-main",
+      "label": "OpenAI API",
+      "provider": "openai",
+      "enabled": true,
+      "api_key": "sk-admin-xxxxxxxx",
+      "monthly_limit": 50,
+      "widget": { "position": { "x": 50, "y": 350 } }
     }
   ]
 }
@@ -115,7 +124,7 @@ Only one app instance runs at a time. If nothing appears, check the system tray 
 |---|---|---|
 | `id` | Yes | Unique account identifier (used to save widget position) |
 | `label` | Yes | Widget title (e.g. `Copilot Personal`, `Cursor`) |
-| `provider` | Yes | `github_copilot` or `cursor` |
+| `provider` | Yes | `github_copilot`, `cursor`, or `openai` |
 | `enabled` | No | `false` keeps the account in config but hides its widget |
 | `thresholds` | No | Per-account override of global warning/critical % |
 | `widget.enabled` | No | `false` hides only this account's widget |
@@ -239,6 +248,36 @@ The progress bar and status thresholds are based on the dashboard %, not the raw
 
 ---
 
+## OpenAI API setup
+
+This monitors **OpenAI Platform API spend** (organization costs), not ChatGPT Plus/Team message limits. Those subscription quotas are not exposed by a public API.
+
+### Admin API key
+
+1. Open [OpenAI Platform](https://platform.openai.com) → organization settings → **Admin keys**
+2. Create an **Admin API key** (a normal `sk-...` model key cannot read organization costs)
+3. Paste it into `api_key` in `config.json`
+
+### Account fields
+
+| Field | Description |
+|---|---|
+| `api_key` | OpenAI **Admin** API key — required |
+| `monthly_limit` | Your monthly USD budget — required (used as the widget limit) |
+| `organization` | Optional display handle (`@name` subtitle). Leave empty if unused |
+
+### What the widget shows (OpenAI)
+
+| Area | Content |
+|---|---|
+| Header | OpenAI icon, account label, optional `@organization`, status badge |
+| Left panel | **Usage** (% of budget), **Used** (USD spent this month), **Monthly Limit** (`monthly_limit`) |
+| Right panel | Remaining USD, plan, top cost category (`Top:`), billing-cycle reset (1st of next month UTC) |
+
+Spend is fetched from `GET /v1/organization/costs` for the current calendar month (UTC). Thresholds (warning / critical) apply to `% of monthly_limit`.
+
+---
+
 ## Using the application
 
 ### Widget controls
@@ -347,6 +386,13 @@ Docs: https://docs.github.com/en/rest/billing/usage
 
 Docs: https://cursor.com/docs/account/teams/admin-api
 
+### OpenAI
+
+- `GET https://api.openai.com/v1/organization/costs` — organization spend for the current month (Admin API key)
+- Optional `group_by=line_item` for the top cost category shown in the detail panel
+
+Docs: https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/costs/
+
 ---
 
 ## Troubleshooting
@@ -355,6 +401,7 @@ Docs: https://cursor.com/docs/account/teams/admin-api
 |---|---|
 | Widget shows **Error** (Cursor) | Refresh `session_token` from browser cookies |
 | Widget shows **Error** (Copilot) | Regenerate token; ensure `copilot` / Plan read scope |
+| Widget shows **Error** (OpenAI) | Use an **Admin** API key; set `monthly_limit` > 0 |
 | App starts but no window | Another instance may be running — check system tray |
 | `run.bat` fails on Windows | Use `py -3 src\main.py` or recreate `.venv` with `py -3 -m venv .venv` |
 | Cursor % and counts look odd | The app uses dashboard % as source of truth; raw event counts from the API are not shown directly |
@@ -371,6 +418,7 @@ All account-specific values (usernames, tokens, organizations, emails, widget ti
 | Source code / scripts | No hardcoded usernames, orgs, tokens, or emails |
 | Test scripts | Read credentials via `scripts/_config_loader.py` |
 | Widget labels | `organization`, `github_username`, `cursor_email`, and `label` come from config |
+| OpenAI budget | Set `monthly_limit` in USD; spend comes from the Admin Costs API |
 | API responses | Used for usage metrics only; display identity prefers config when set |
 
 ---
@@ -379,7 +427,7 @@ All account-specific values (usernames, tokens, organizations, emails, widget ti
 
 ```
 Copilot_Desktop_Monitor/
-├── assets/icons/          # Provider icons (Copilot, Cursor)
+├── assets/icons/          # Provider icons (Copilot, Cursor, OpenAI)
 ├── config.example.json    # Template configuration
 ├── config.json            # Your local config (gitignored)
 ├── src/
@@ -388,6 +436,7 @@ Copilot_Desktop_Monitor/
 │   ├── config.py          # Config loading and validation
 │   ├── github_api.py      # GitHub Copilot usage client
 │   ├── cursor_api.py      # Cursor usage client
+│   ├── openai_api.py      # OpenAI organization costs client
 │   └── provider_icons.py  # Header icon loader
 ├── run.bat / run.sh       # Launch scripts
 └── requirements.txt

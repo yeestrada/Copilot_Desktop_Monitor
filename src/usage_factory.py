@@ -5,6 +5,7 @@ from typing import Protocol
 from config import AccountConfig
 from cursor_api import CursorClient
 from github_api import GitHubCopilotClient
+from openai_api import OpenAIClient
 from usage_types import AccountUsage
 
 
@@ -17,4 +18,6 @@ def create_usage_client(account: AccountConfig) -> UsageClient:
         return GitHubCopilotClient(account)
     if account.provider == "cursor":
         return CursorClient(account)
+    if account.provider == "openai":
+        return OpenAIClient(account)
     raise ValueError(f"Unsupported provider: {account.provider}")

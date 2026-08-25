@@ -44,6 +44,10 @@ def first_cursor_account(raw: dict[str, Any]) -> dict[str, Any]:
     return first_account_by_provider(raw, "cursor")
 
 
+def first_openai_account(raw: dict[str, Any]) -> dict[str, Any]:
+    return first_account_by_provider(raw, "openai")
+
+
 def load_github_account(path: Path | None = None) -> dict[str, Any]:
     raw = load_raw_config(path)
     account = first_github_account(raw)
@@ -60,4 +64,22 @@ def load_cursor_account(path: Path | None = None) -> dict[str, Any]:
         raise ValueError("No Cursor account found in config.json accounts[]")
     if not str(account.get("session_token", "")).strip() and not str(account.get("api_key", "")).strip():
         raise ValueError("Missing session_token or api_key for Cursor in config.json")
+    return account
+
+
+def load_openai_account(path: Path | None = None) -> dict[str, Any]:
+    raw = load_raw_config(path)
+    account = first_openai_account(raw)
+    if not account:
+        raise ValueError("No OpenAI account found in config.json accounts[]")
+    if not str(account.get("api_key", "")).strip():
+        raise ValueError("Missing api_key for OpenAI in config.json")
+    monthly_limit = account.get("monthly_limit")
+    try:
+        if monthly_limit is None or float(monthly_limit) <= 0:
+            raise ValueError("monthly_limit must be greater than 0 for OpenAI in config.json")
+    except (TypeError, ValueError) as exc:
+        if "monthly_limit" in str(exc):
+            raise
+        raise ValueError("monthly_limit must be a number greater than 0 for OpenAI in config.json") from exc
     return account

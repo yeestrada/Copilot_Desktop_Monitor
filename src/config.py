@@ -33,7 +33,7 @@ PLAN_LIMITS_CREDITS = {
     "enterprise": 39.0,
 }
 
-PROVIDERS = {"github_copilot", "cursor"}
+PROVIDERS = {"github_copilot", "cursor", "openai"}
 
 DEFAULT_ACCOUNT: dict[str, Any] = {
     "id": "",
@@ -132,6 +132,8 @@ class AccountConfig:
             return self.label
         if self.provider == "cursor":
             return "Cursor"
+        if self.provider == "openai":
+            return "OpenAI"
         return "GitHub Copilot"
 
     @property
@@ -141,6 +143,8 @@ class AccountConfig:
             if email and "@" in email:
                 return email.split("@", 1)[0]
             return email
+        if self.provider == "openai":
+            return self.organization.strip()
         return self.github_username
 
     def resolve_monthly_limit(self, billing_mode: str, api_limit: float | None) -> float | None:
@@ -190,6 +194,15 @@ class AccountConfig:
                     errors.append(f"{prefix}: missing cursor_email for Cursor admin API")
             elif not self.api_key and not self.session_token:
                 errors.append(f"{prefix}: provide api_key and/or session_token for Cursor")
+
+        if self.provider == "openai":
+            if not self.api_key:
+                errors.append(f"{prefix}: missing api_key (OpenAI Admin API key)")
+            try:
+                if self.monthly_limit is None or float(self.monthly_limit) <= 0:
+                    errors.append(f"{prefix}: monthly_limit (USD budget) must be greater than 0")
+            except (TypeError, ValueError):
+                errors.append(f"{prefix}: monthly_limit (USD budget) must be a number greater than 0")
 
         return errors
 

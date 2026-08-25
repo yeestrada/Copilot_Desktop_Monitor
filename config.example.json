@@ -51,6 +51,22 @@
           "y": 200
         }
       }
+    },
+    {
+      "id": "openai-main",
+      "label": "OpenAI API",
+      "provider": "openai",
+      "enabled": true,
+      "api_key": "sk-admin-your_openai_admin_api_key",
+      "monthly_limit": 50,
+      "organization": "",
+      "widget": {
+        "enabled": true,
+        "position": {
+          "x": 50,
+          "y": 350
+        }
+      }
     }
   ]
 }

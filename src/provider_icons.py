@@ -10,6 +10,7 @@ ICON_DIR = bundle_dir() / "assets" / "icons"
 ICON_FILES = {
     "cursor": "cursor.png",
     "github_copilot": "github_copilot.png",
+    "openai": "openai.png",
 }
 
 _photo_cache: dict[tuple[int, str, int], tk.PhotoImage] = {}

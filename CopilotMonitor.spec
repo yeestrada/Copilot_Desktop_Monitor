@@ -18,6 +18,7 @@ hiddenimports = [
     "config",
     "github_api",
     "cursor_api",
+    "openai_api",
     "usage_factory",
     "usage_types",
     "widget",

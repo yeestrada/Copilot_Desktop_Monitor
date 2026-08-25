@@ -1,0 +1,214 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+import requests
+
+from config import AccountConfig
+from usage_types import AccountUsage, UsageStatus
+
+OPENAI_API_BASE = "https://api.openai.com/v1"
+COSTS_PATH = "/organization/costs"
+
+
+class OpenAIApiError(Exception):
+    pass
+
+
+class OpenAIClient:
+    def __init__(self, account: AccountConfig) -> None:
+        self.account = account
+        self.session = requests.Session()
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {account.api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "CopilotDesktopMonitor/2.0",
+            }
+        )
+
+    def fetch_usage(self) -> AccountUsage:
+        now = datetime.now(timezone.utc)
+        period_label = _next_month_reset_label(now)
+
+        try:
+            start_time = _month_start_unix(now)
+            used = self._fetch_month_cost(start_time)
+            top_line = self._fetch_top_line_item(start_time)
+        except OpenAIApiError as exc:
+            return self._error_usage(period_label, str(exc))
+
+        limit = self.account.resolve_monthly_limit("openai_costs", None)
+        status, percent, remaining = _compute_status(used, limit, self.account)
+        username = self.account.display_username or self.account.organization or "openai"
+
+        return AccountUsage(
+            used=used,
+            limit=limit,
+            unit="USD",
+            billing_mode="openai_costs",
+            status=status,
+            percent_used=percent,
+            remaining=remaining,
+            username=username,
+            period_label=period_label,
+            plan=self.account.plan or "api",
+            organization=top_line,
+            provider=self.account.provider,
+            label=self.account.label,
+        )
+
+    def _fetch_month_cost(self, start_time: int) -> float:
+        payload = self._request_costs(start_time=start_time)
+        return _sum_cost_amounts(payload)
+
+    def _fetch_top_line_item(self, start_time: int) -> str:
+        try:
+            payload = self._request_costs(start_time=start_time, group_by=["line_item"])
+        except OpenAIApiError:
+            return ""
+
+        totals: dict[str, float] = {}
+        for bucket in payload.get("data") or []:
+            if not isinstance(bucket, dict):
+                continue
+            for result in bucket.get("results") or []:
+                if not isinstance(result, dict):
+                    continue
+                line_item = result.get("line_item")
+                if not isinstance(line_item, str) or not line_item.strip():
+                    continue
+                amount = _amount_value(result.get("amount"))
+                if amount is None:
+                    continue
+                totals[line_item] = totals.get(line_item, 0.0) + amount
+
+        if not totals:
+            return ""
+
+        top_name, top_value = max(totals.items(), key=lambda item: item[1])
+        return f"{top_name} ${top_value:.2f}"
+
+    def _request_costs(
+        self,
+        *,
+        start_time: int,
+        group_by: list[str] | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "start_time": start_time,
+            "bucket_width": "1d",
+            "limit": 35,
+        }
+        if group_by:
+            params["group_by"] = group_by
+
+        response = self.session.get(
+            f"{OPENAI_API_BASE}{COSTS_PATH}",
+            params=params,
+            timeout=30,
+        )
+        if response.status_code == 401:
+            raise OpenAIApiError("invalid or expired Admin API key (401)")
+        if response.status_code == 403:
+            raise OpenAIApiError(
+                "missing permission to read organization costs. Use an OpenAI Admin API key"
+            )
+        if not response.ok:
+            detail = _safe_json(response).get("error") or _safe_json(response).get("message")
+            if isinstance(detail, dict):
+                detail = detail.get("message", response.text[:200])
+            detail = detail or response.text[:200]
+            raise OpenAIApiError(f"HTTP {response.status_code}: {detail}")
+
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise OpenAIApiError("unexpected costs response")
+        return payload
+
+    def _error_usage(self, period_label: str, message: str) -> AccountUsage:
+        return AccountUsage(
+            used=0.0,
+            limit=None,
+            unit="",
+            billing_mode="",
+            status=UsageStatus.ERROR,
+            percent_used=None,
+            remaining=None,
+            username=self.account.display_username or self.account.organization or "openai",
+            period_label=period_label,
+            message=message,
+            plan=self.account.plan or "api",
+            organization=self.account.organization,
+            provider=self.account.provider,
+            label=self.account.label,
+        )
+
+
+def _month_start_unix(now: datetime) -> int:
+    start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    return int(start.timestamp())
+
+
+def _next_month_reset_label(now: datetime) -> str:
+    if now.month == 12:
+        return f"01/{now.year + 1}"
+    return f"{now.month + 1:02d}/{now.year}"
+
+
+def _sum_cost_amounts(payload: dict[str, Any]) -> float:
+    total = 0.0
+    for bucket in payload.get("data") or []:
+        if not isinstance(bucket, dict):
+            continue
+        for result in bucket.get("results") or []:
+            if not isinstance(result, dict):
+                continue
+            amount = _amount_value(result.get("amount"))
+            if amount is not None:
+                total += amount
+    return total
+
+
+def _amount_value(amount: Any) -> float | None:
+    if isinstance(amount, dict):
+        return _to_float(amount.get("value"))
+    return _to_float(amount)
+
+
+def _compute_status(
+    used: float,
+    limit: float | None,
+    account: AccountConfig,
+) -> tuple[UsageStatus, float | None, float | None]:
+    if limit is None or limit <= 0:
+        return UsageStatus.UNKNOWN, None, None
+
+    percent = min((used / limit) * 100, 999.9)
+    remaining = max(limit - used, 0)
+
+    if percent >= 100:
+        return UsageStatus.EXCEEDED, percent, remaining
+    if percent >= account.thresholds.critical_percent:
+        return UsageStatus.CRITICAL, percent, remaining
+    if percent >= account.thresholds.warning_percent:
+        return UsageStatus.WARNING, percent, remaining
+    return UsageStatus.OK, percent, remaining
+
+
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_json(response: requests.Response) -> dict[str, Any]:
+    try:
+        data = response.json()
+        return data if isinstance(data, dict) else {}
+    except ValueError:
+        return {}
