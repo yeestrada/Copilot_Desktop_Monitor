@@ -94,6 +94,7 @@ class WidgetSettings:
     opacity: float = 0.92
     position_x: int = 50
     position_y: int = 50
+    collapsed: bool = False
 
 
 @dataclass
@@ -310,6 +311,7 @@ class MonitorConfig:
                         opacity=float(widget.get("opacity", global_widget.get("opacity", 0.92))),
                         position_x=int(position.get("x", 50 + index * 30)),
                         position_y=int(position.get("y", 50 + index * 130)),
+                        collapsed=bool(widget.get("collapsed", False)),
                     ),
                 )
             )
@@ -350,6 +352,19 @@ class MonitorConfig:
                 account["widget"]["position"]["y"] = y
                 break
         _write_json(CONFIG_PATH, data)
+
+    def save_widget_collapsed(self, account_id: str, collapsed: bool) -> None:
+        data = _read_json(CONFIG_PATH)
+        for account in data.get("accounts", []):
+            if str(account.get("id")) == account_id:
+                account.setdefault("widget", {})
+                account["widget"]["collapsed"] = collapsed
+                break
+        _write_json(CONFIG_PATH, data)
+        for account in self.accounts:
+            if account.id == account_id:
+                account.widget.collapsed = collapsed
+                break
 
     def save_autostart_enabled(self, enabled: bool) -> None:
         data = _read_json(CONFIG_PATH)

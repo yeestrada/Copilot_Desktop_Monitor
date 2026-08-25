@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk
 from typing import Callable
 
@@ -32,6 +33,97 @@ BG_CARD_BORDER = "#30363d"
 FG_PRIMARY = "#f0f6fc"
 FG_MUTED = "#8b949e"
 
+# Same outer size for every account widget (expanded / collapsed).
+WIDGET_WIDTH = 400
+WIDGET_HEIGHT = 190
+DETAILS_PANEL_WIDTH = 128
+HEADER_TEXT_WIDTH = 210
+MAIN_TEXT_WIDTH = 210
+DETAIL_TEXT_WIDTH = DETAILS_PANEL_WIDTH - 24
+ERROR_TEXT_WIDTH = WIDGET_WIDTH - 40
+
+
+class HoverTooltip:
+    """Show full text on hover when a label is truncated."""
+
+    def __init__(self, widget: tk.Misc) -> None:
+        self.widget = widget
+        self.text = ""
+        self._tip: tk.Toplevel | None = None
+        self._after_id: str | None = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def set_text(self, text: str) -> None:
+        self.text = text.strip()
+
+    def _schedule(self, _event: tk.Event | None = None) -> None:
+        self._cancel()
+        if not self.text:
+            return
+        self._after_id = self.widget.after(350, self._show)
+
+    def _cancel(self) -> None:
+        if self._after_id is not None:
+            self.widget.after_cancel(self._after_id)
+            self._after_id = None
+
+    def _hide(self, _event: tk.Event | None = None) -> None:
+        self._cancel()
+        if self._tip is not None:
+            self._tip.destroy()
+            self._tip = None
+
+    def _show(self) -> None:
+        self._after_id = None
+        if not self.text or self._tip is not None:
+            return
+        tip = tk.Toplevel(self.widget)
+        tip.wm_overrideredirect(True)
+        try:
+            tip.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        label = tk.Label(
+            tip,
+            text=self.text,
+            justify="left",
+            background="#1c2128",
+            foreground=FG_PRIMARY,
+            relief="solid",
+            borderwidth=1,
+            font=ui_font(8),
+            padx=8,
+            pady=4,
+            wraplength=320,
+        )
+        label.pack()
+        tip.update_idletasks()
+        x = self.widget.winfo_rootx()
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        tip.geometry(f"+{x}+{y}")
+        self._tip = tip
+
+
+def _truncate_to_width(text: str, font: tkfont.Font, max_width: int) -> str:
+    value = text if text is not None else ""
+    if not value or font.measure(value) <= max_width:
+        return value
+    ellipsis = "…"
+    ellipsis_width = font.measure(ellipsis)
+    if ellipsis_width >= max_width:
+        return ellipsis
+    available = max_width - ellipsis_width
+    low, high = 0, len(value)
+    while low < high:
+        mid = (low + high + 1) // 2
+        if font.measure(value[:mid]) <= available:
+            low = mid
+        else:
+            high = mid - 1
+    return value[:low].rstrip() + ellipsis
+
 
 class AccountWidget(tk.Toplevel):
     def __init__(
@@ -49,16 +141,18 @@ class AccountWidget(tk.Toplevel):
         self.on_close = on_close
         self._drag_offset_x = 0
         self._drag_offset_y = 0
+        self._collapsed = bool(account.widget.collapsed)
 
         provider_label = PROVIDER_LABELS.get(account.provider, account.provider)
         self.title(f"{account.display_title} · {provider_label}")
         self.overrideredirect(True)
         apply_window_attributes(self, account.widget.always_on_top, account.widget.opacity)
-        self.geometry(f"+{account.widget.position_x}+{account.widget.position_y}")
+        self.geometry(f"{WIDGET_WIDTH}x{WIDGET_HEIGHT}+{account.widget.position_x}+{account.widget.position_y}")
         self.configure(bg=BG_APP)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self._build_ui(provider_label)
+        self._apply_collapsed()
         self.bind("<ButtonPress-1>", self._start_drag)
         self.bind("<B1-Motion>", self._on_drag)
         self.bind("<ButtonRelease-1>", self._end_drag)
@@ -76,7 +170,7 @@ class AccountWidget(tk.Toplevel):
         )
 
     def _build_ui(self, provider_label: str) -> None:
-        frame = tk.Frame(
+        self._root_frame = tk.Frame(
             self,
             bg=BG_APP,
             padx=14,
@@ -84,12 +178,12 @@ class AccountWidget(tk.Toplevel):
             highlightthickness=1,
             highlightbackground=BG_CARD_BORDER,
         )
-        frame.pack(fill="both", expand=True)
+        self._root_frame.pack(fill="both", expand=True)
 
-        header = tk.Frame(frame, bg=BG_APP)
-        header.pack(fill="x", pady=(0, 8))
+        self._header = tk.Frame(self._root_frame, bg=BG_APP)
+        self._header.pack(fill="x", pady=(0, 8))
 
-        header_left = tk.Frame(header, bg=BG_APP)
+        header_left = tk.Frame(self._header, bg=BG_APP)
         header_left.pack(side="left", fill="both", expand=True)
 
         self._provider_icon = get_provider_icon(self, self.account.provider)
@@ -103,42 +197,47 @@ class AccountWidget(tk.Toplevel):
 
         self.title_label = tk.Label(
             header_left,
-            text=self.account.display_title,
+            text="",
             font=ui_font(11, bold=True),
             fg=FG_PRIMARY,
             bg=BG_APP,
             anchor="w",
         )
         self.title_label.grid(row=0, column=1, sticky="w")
+        self._title_tip = HoverTooltip(self.title_label)
 
         self.user_label = tk.Label(
             header_left,
-            text=f"{provider_label} · @{self.account.display_username or '...'}",
+            text="",
             font=ui_font(9),
             fg=FG_MUTED,
             bg=BG_APP,
             anchor="w",
         )
         self.user_label.grid(row=1, column=1, sticky="w", pady=(2, 0))
+        self._user_tip = HoverTooltip(self.user_label)
         header_left.grid_columnconfigure(1, weight=1)
 
-        header_right = tk.Frame(header, bg=BG_APP)
+        self._set_truncated_label(
+            self.title_label,
+            self._title_tip,
+            self.account.display_title,
+            HEADER_TEXT_WIDTH,
+        )
+        self._set_truncated_label(
+            self.user_label,
+            self._user_tip,
+            f"{provider_label} · @{self.account.display_username or '...'}",
+            HEADER_TEXT_WIDTH,
+        )
+
+        header_right = tk.Frame(self._header, bg=BG_APP)
         header_right.pack(side="right", anchor="ne")
 
         controls = tk.Frame(header_right, bg=BG_APP)
         controls.pack(anchor="ne")
 
-        self.refresh_btn = tk.Label(
-            controls,
-            text="↻",
-            font=ui_font(12),
-            fg=FG_MUTED,
-            bg=BG_APP,
-            cursor="hand2",
-        )
-        self.refresh_btn.pack(side="right", padx=(8, 0))
-        self.refresh_btn.bind("<Button-1>", lambda _e: self.refresh_now())
-
+        # Rightmost → leftmost: close, refresh, collapse/expand
         self.close_btn = tk.Label(
             controls,
             text="×",
@@ -150,28 +249,54 @@ class AccountWidget(tk.Toplevel):
         self.close_btn.pack(side="right")
         self.close_btn.bind("<Button-1>", lambda _e: self.on_close())
 
-        status_card = tk.Frame(
+        self.refresh_btn = tk.Label(
+            controls,
+            text="↻",
+            font=ui_font(12),
+            fg=FG_MUTED,
+            bg=BG_APP,
+            cursor="hand2",
+        )
+        self.refresh_btn.pack(side="right", padx=(0, 8))
+        self.refresh_btn.bind("<Button-1>", lambda _e: self.refresh_now())
+
+        self.collapse_btn = tk.Label(
+            controls,
+            text="▾",
+            font=ui_font(11),
+            fg=FG_MUTED,
+            bg=BG_APP,
+            cursor="hand2",
+        )
+        self.collapse_btn.pack(side="right", padx=(0, 8))
+        self.collapse_btn.bind("<Button-1>", lambda _e: self.toggle_collapsed())
+
+        self._status_card = tk.Frame(
             header_right,
             bg=BG_CARD,
             highlightthickness=1,
             highlightbackground=BG_CARD_BORDER,
             highlightcolor=BG_CARD_BORDER,
         )
-        status_card.pack(anchor="e", pady=(4, 0))
+        self._status_card.pack(anchor="e", pady=(4, 0))
 
         self.status_badge = tk.Label(
-            status_card,
+            self._status_card,
             text="Loading...",
             font=ui_font(9, bold=True),
             fg="#ffffff",
             bg="#30363d",
             padx=8,
             pady=3,
+            width=10,
         )
         self.status_badge.pack()
 
-        content = tk.Frame(frame, bg=BG_APP)
-        content.pack(fill="x", pady=(10, 0))
+        self._body = tk.Frame(self._root_frame, bg=BG_APP)
+        self._body.pack(fill="both", expand=True, pady=(10, 0))
+
+        content = tk.Frame(self._body, bg=BG_APP)
+        content.pack(fill="both", expand=True)
 
         main_card = self._card(content)
         main_card.pack(side="left", fill="both", expand=True)
@@ -185,6 +310,7 @@ class AccountWidget(tk.Toplevel):
             anchor="w",
         )
         self.usage_label.pack(fill="x")
+        self._usage_tip = HoverTooltip(self.usage_label)
 
         self.used_label = tk.Label(
             main_card,
@@ -195,6 +321,7 @@ class AccountWidget(tk.Toplevel):
             anchor="w",
         )
         self.used_label.pack(fill="x", pady=(4, 0))
+        self._used_tip = HoverTooltip(self.used_label)
 
         self.limit_label = tk.Label(
             main_card,
@@ -205,6 +332,7 @@ class AccountWidget(tk.Toplevel):
             anchor="w",
         )
         self.limit_label.pack(fill="x", pady=(2, 0))
+        self._limit_tip = HoverTooltip(self.limit_label)
 
         self._progress_style = f"Usage.{self.account.id}.Horizontal.TProgressbar"
         self.progress = ttk.Progressbar(
@@ -215,8 +343,12 @@ class AccountWidget(tk.Toplevel):
         )
         self.progress.pack(fill="x", pady=(10, 0))
 
-        details_card = self._card(content)
-        details_card.pack(side="right", fill="y", anchor="n", padx=(10, 0))
+        details_wrap = tk.Frame(content, bg=BG_APP, width=DETAILS_PANEL_WIDTH)
+        details_wrap.pack(side="right", fill="y", padx=(10, 0))
+        details_wrap.pack_propagate(False)
+
+        details_card = self._card(details_wrap)
+        details_card.pack(fill="both", expand=True)
 
         detail_style = {
             "font": ui_font(8),
@@ -228,29 +360,33 @@ class AccountWidget(tk.Toplevel):
 
         self.remaining_detail_label = tk.Label(details_card, text="—", **detail_style)
         self.remaining_detail_label.pack(fill="x", pady=(2, 0))
+        self._remaining_tip = HoverTooltip(self.remaining_detail_label)
 
         self.plan_detail_label = tk.Label(details_card, text="—", **detail_style)
         self.plan_detail_label.pack(fill="x", pady=(2, 0))
+        self._plan_tip = HoverTooltip(self.plan_detail_label)
 
         self.org_detail_label = tk.Label(details_card, text="—", **detail_style)
         self.org_detail_label.pack(fill="x", pady=(2, 0))
+        self._org_tip = HoverTooltip(self.org_detail_label)
 
         self.reset_detail_label = tk.Label(details_card, text="—", **detail_style)
         self.reset_detail_label.pack(fill="x", pady=(2, 0))
+        self._reset_tip = HoverTooltip(self.reset_detail_label)
 
         self._configure_progress_style("#238636")
 
         self.error_label = tk.Label(
-            frame,
+            self._body,
             text="",
             font=ui_font(8),
             fg="#f85149",
             bg=BG_APP,
             anchor="w",
-            wraplength=320,
             justify="left",
         )
         self.error_label.pack(fill="x", pady=(8, 0))
+        self._error_tip = HoverTooltip(self.error_label)
 
     def _configure_progress_style(self, accent: str) -> None:
         style = ttk.Style(self)
@@ -263,6 +399,20 @@ class AccountWidget(tk.Toplevel):
             borderwidth=0,
         )
 
+    def _set_truncated_label(
+        self,
+        label: tk.Label,
+        tip: HoverTooltip,
+        text: str,
+        max_width: int,
+        **configure_kwargs: object,
+    ) -> None:
+        full = text if text is not None else ""
+        font = tkfont.Font(font=label.cget("font"))
+        display = _truncate_to_width(full, font, max_width)
+        label.configure(text=display, **configure_kwargs)
+        tip.set_text(full if display != full else "")
+
     def _set_detail_labels(
         self,
         remaining: str,
@@ -270,18 +420,54 @@ class AccountWidget(tk.Toplevel):
         org: str,
         reset: str,
     ) -> None:
-        self.remaining_detail_label.configure(text=remaining)
-        self.plan_detail_label.configure(text=plan)
-        self.org_detail_label.configure(text=org)
-        self.reset_detail_label.configure(text=reset)
+        self._set_truncated_label(
+            self.remaining_detail_label, self._remaining_tip, remaining, DETAIL_TEXT_WIDTH
+        )
+        self._set_truncated_label(self.plan_detail_label, self._plan_tip, plan, DETAIL_TEXT_WIDTH)
+        self._set_truncated_label(self.org_detail_label, self._org_tip, org, DETAIL_TEXT_WIDTH)
+        self._set_truncated_label(self.reset_detail_label, self._reset_tip, reset, DETAIL_TEXT_WIDTH)
 
     def _clear_details(self) -> None:
         self._set_detail_labels("—", "—", "—", "—")
 
+    def toggle_collapsed(self) -> None:
+        self._collapsed = not self._collapsed
+        self._apply_collapsed()
+        self.monitor_config.save_widget_collapsed(self.account.id, self._collapsed)
+
+    def _apply_collapsed(self) -> None:
+        if self._collapsed:
+            self._body.pack_forget()
+            self._header.pack_configure(pady=(0, 0))
+            self.collapse_btn.configure(text="▸")
+        else:
+            self._header.pack_configure(pady=(0, 8))
+            if not self._body.winfo_ismapped():
+                self._body.pack(fill="both", expand=True, pady=(10, 0))
+            self.collapse_btn.configure(text="▾")
+        # Keep badge metrics identical in both states.
+        self.status_badge.configure(width=10, padx=8, pady=3, font=ui_font(9, bold=True))
+        self._sync_geometry()
+
+    def _sync_geometry(self) -> None:
+        self.update_idletasks()
+        if self._collapsed:
+            # Size to the full header so the status card is never clipped/shrunk.
+            height = max(self.winfo_reqheight(), self._root_frame.winfo_reqheight(), 1)
+        else:
+            height = WIDGET_HEIGHT
+        if self.winfo_ismapped():
+            x, y = self.winfo_x(), self.winfo_y()
+        else:
+            x, y = self.account.widget.position_x, self.account.widget.position_y
+        self.geometry(f"{WIDGET_WIDTH}x{height}+{x}+{y}")
+        self.minsize(WIDGET_WIDTH, height)
+        self.maxsize(WIDGET_WIDTH, height)
+
     def refresh_now(self) -> None:
         _, badge_bg, _ = STATUS_COLORS[UsageStatus.UNKNOWN]
         self.status_badge.configure(text="Loading...", bg=badge_bg)
-        self.error_label.configure(text="")
+        self._set_truncated_label(self.error_label, self._error_tip, "", ERROR_TEXT_WIDTH)
 
         def worker() -> None:
             try:
@@ -312,19 +498,34 @@ class AccountWidget(tk.Toplevel):
 
         provider_label = PROVIDER_LABELS.get(usage.provider, usage.provider)
         handle = str(usage.username or "").strip() or "..."
-        self.user_label.configure(text=f"{provider_label} · @{handle}")
+        self._set_truncated_label(
+            self.user_label,
+            self._user_tip,
+            f"{provider_label} · @{handle}",
+            HEADER_TEXT_WIDTH,
+        )
         self.status_badge.configure(text=usage.status_label, bg=badge_bg)
 
         if usage.status == UsageStatus.ERROR:
-            self.usage_label.configure(text="Usage: --", fg=FG_PRIMARY)
-            self.used_label.configure(text="Used: --")
-            self.limit_label.configure(text="Monthly Limit: --")
+            self._set_truncated_label(
+                self.usage_label, self._usage_tip, "Usage: --", MAIN_TEXT_WIDTH, fg=FG_PRIMARY
+            )
+            self._set_truncated_label(self.used_label, self._used_tip, "Used: --", MAIN_TEXT_WIDTH)
+            self._set_truncated_label(
+                self.limit_label, self._limit_tip, "Monthly Limit: --", MAIN_TEXT_WIDTH
+            )
             self.progress["value"] = 0
             self._clear_details()
-            self.error_label.configure(text=usage.message or "Failed to query the API")
+            self._set_truncated_label(
+                self.error_label,
+                self._error_tip,
+                usage.message or "Failed to query the API",
+                ERROR_TEXT_WIDTH,
+            )
+            self._sync_geometry()
             return
 
-        self.error_label.configure(text="")
+        self._set_truncated_label(self.error_label, self._error_tip, "", ERROR_TEXT_WIDTH)
 
         if usage.unit == "USD":
             used_text = f"${usage.used:.2f}"
@@ -347,17 +548,32 @@ class AccountWidget(tk.Toplevel):
 
         usage_fg = accent if usage.status != UsageStatus.OK else FG_PRIMARY
         if usage.percent_used is not None:
-            self.usage_label.configure(text=f"Usage: {usage.percent_used:.1f}%", fg=usage_fg)
+            self._set_truncated_label(
+                self.usage_label,
+                self._usage_tip,
+                f"Usage: {usage.percent_used:.1f}%",
+                MAIN_TEXT_WIDTH,
+                fg=usage_fg,
+            )
         else:
-            self.usage_label.configure(text="Usage: --", fg=FG_PRIMARY)
+            self._set_truncated_label(
+                self.usage_label, self._usage_tip, "Usage: --", MAIN_TEXT_WIDTH, fg=FG_PRIMARY
+            )
 
-        self.used_label.configure(text=f"Used: {used_text}")
+        self._set_truncated_label(
+            self.used_label, self._used_tip, f"Used: {used_text}", MAIN_TEXT_WIDTH
+        )
         limit_title = (
             "Credit Limit"
             if usage.billing_mode in {"openai_credits", "siliconflow_balance"}
             else "Monthly Limit"
         )
-        self.limit_label.configure(text=f"{limit_title}: {limit_text}")
+        self._set_truncated_label(
+            self.limit_label,
+            self._limit_tip,
+            f"{limit_title}: {limit_text}",
+            MAIN_TEXT_WIDTH,
+        )
 
         if usage.percent_used is not None:
             self.progress["value"] = min(usage.percent_used, 100)
@@ -403,6 +619,7 @@ class AccountWidget(tk.Toplevel):
                 org="—",
                 reset="Set monthly_limit or session_token in config.json",
             )
+        self._sync_geometry()
 
     def _start_drag(self, event: tk.Event) -> None:
         self._drag_offset_x = event.x
