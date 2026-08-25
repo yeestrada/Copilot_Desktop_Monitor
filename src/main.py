@@ -133,9 +133,14 @@ class UsageMonitorApp:
         print(message)
 
     def _refresh_account(self, instance: AccountInstance) -> None:
-        usage = self.fetch_usage(instance)
         if instance.widget is not None:
-            instance.widget.after(0, lambda: self._apply_usage(instance, usage))
+            instance.widget.refresh_now()
+            return
+
+        def worker() -> None:
+            self.fetch_usage(instance)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _refresh_all(self) -> None:
         for instance in self.instances:

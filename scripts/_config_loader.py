@@ -72,14 +72,6 @@ def load_openai_account(path: Path | None = None) -> dict[str, Any]:
     account = first_openai_account(raw)
     if not account:
         raise ValueError("No OpenAI account found in config.json accounts[]")
-    if not str(account.get("api_key", "")).strip():
-        raise ValueError("Missing api_key for OpenAI in config.json")
-    monthly_limit = account.get("monthly_limit")
-    try:
-        if monthly_limit is None or float(monthly_limit) <= 0:
-            raise ValueError("monthly_limit must be greater than 0 for OpenAI in config.json")
-    except (TypeError, ValueError) as exc:
-        if "monthly_limit" in str(exc):
-            raise
-        raise ValueError("monthly_limit must be a number greater than 0 for OpenAI in config.json") from exc
+    if not str(account.get("session_token", "")).strip():
+        raise ValueError("Missing session_token for OpenAI in config.json")
     return account

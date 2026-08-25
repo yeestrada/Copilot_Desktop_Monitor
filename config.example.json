@@ -57,9 +57,7 @@
       "label": "OpenAI API",
       "provider": "openai",
       "enabled": true,
-      "api_key": "sk-admin-your_openai_admin_api_key",
-      "monthly_limit": 50,
-      "organization": "",
+      "session_token": "sess-your_openai_dashboard_session_token",
       "widget": {
         "enabled": true,
         "position": {

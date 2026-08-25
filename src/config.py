@@ -196,13 +196,10 @@ class AccountConfig:
                 errors.append(f"{prefix}: provide api_key and/or session_token for Cursor")
 
         if self.provider == "openai":
-            if not self.api_key:
-                errors.append(f"{prefix}: missing api_key (OpenAI Admin API key)")
-            try:
-                if self.monthly_limit is None or float(self.monthly_limit) <= 0:
-                    errors.append(f"{prefix}: monthly_limit (USD budget) must be greater than 0")
-            except (TypeError, ValueError):
-                errors.append(f"{prefix}: monthly_limit (USD budget) must be a number greater than 0")
+            if not self.session_token:
+                errors.append(
+                    f"{prefix}: missing session_token (browser JWT Bearer from platform.openai.com)"
+                )
 
         return errors
 

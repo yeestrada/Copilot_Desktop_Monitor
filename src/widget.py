@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable
@@ -277,8 +278,33 @@ class AccountWidget(tk.Toplevel):
         self._set_detail_labels("—", "—", "—", "—")
 
     def refresh_now(self) -> None:
-        usage = self.on_refresh()
-        self.update_usage(usage)
+        _, badge_bg, _ = STATUS_COLORS[UsageStatus.UNKNOWN]
+        self.status_badge.configure(text="Loading...", bg=badge_bg)
+        self.error_label.configure(text="")
+
+        def worker() -> None:
+            try:
+                usage = self.on_refresh()
+            except Exception as exc:  # noqa: BLE001
+                usage = AccountUsage(
+                    used=0.0,
+                    limit=None,
+                    unit="",
+                    billing_mode="",
+                    status=UsageStatus.ERROR,
+                    percent_used=None,
+                    remaining=None,
+                    username=self.account.display_username or "...",
+                    period_label="",
+                    message=str(exc),
+                    plan=self.account.plan,
+                    organization=self.account.organization,
+                    provider=self.account.provider,
+                    label=self.account.label,
+                )
+            self.after(0, lambda: self.update_usage(usage))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def update_usage(self, usage: AccountUsage) -> None:
         _bg, badge_bg, accent = STATUS_COLORS.get(usage.status, STATUS_COLORS[UsageStatus.UNKNOWN])
@@ -325,7 +351,12 @@ class AccountWidget(tk.Toplevel):
             self.usage_label.configure(text="Usage: --", fg=FG_PRIMARY)
 
         self.used_label.configure(text=f"Used: {used_text}")
-        self.limit_label.configure(text=f"Monthly Limit: {limit_text}")
+        limit_title = (
+            "Credit Limit"
+            if usage.billing_mode == "openai_credits"
+            else "Monthly Limit"
+        )
+        self.limit_label.configure(text=f"{limit_title}: {limit_text}")
 
         if usage.percent_used is not None:
             self.progress["value"] = min(usage.percent_used, 100)
@@ -336,16 +367,20 @@ class AccountWidget(tk.Toplevel):
                 if usage.provider == "github_copilot":
                     fourth_line = f"Org: {usage.organization}"
                 elif usage.provider == "openai":
-                    fourth_line = f"Top: {usage.organization}"
+                    if usage.billing_mode == "openai_credits":
+                        fourth_line = usage.organization
+                    else:
+                        fourth_line = f"Top: {usage.organization}"
                 else:
                     fourth_line = f"Mix: {usage.organization}"
 
+            reset_prefix = "Expires" if usage.billing_mode == "openai_credits" else "Reset"
             self._set_detail_labels(
                 remaining=f"Remaining: {remaining_detail}",
                 plan=f"Plan: {usage.plan}" if usage.plan else "—",
                 org=fourth_line,
                 reset=(
-                    f"Reset: {format_period_date(usage.period_label)}"
+                    f"{reset_prefix}: {format_period_date(usage.period_label)}"
                     if usage.period_label
                     else "—"
                 ),
@@ -357,7 +392,7 @@ class AccountWidget(tk.Toplevel):
                 remaining="—",
                 plan="—",
                 org="—",
-                reset="Set monthly_limit in config.json",
+                reset="Set monthly_limit or session_token in config.json",
             )
 
     def _start_drag(self, event: tk.Event) -> None:

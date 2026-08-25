@@ -84,8 +84,7 @@ Edit `config.json` and add one or more entries under `accounts[]`:
       "label": "OpenAI API",
       "provider": "openai",
       "enabled": true,
-      "api_key": "sk-admin-xxxxxxxx",
-      "monthly_limit": 50,
+      "session_token": "sess-your_openai_dashboard_session_token",
       "widget": { "position": { "x": 50, "y": 350 } }
     }
   ]
@@ -250,31 +249,64 @@ The progress bar and status thresholds are based on the dashboard %, not the raw
 
 ## OpenAI API setup
 
-This monitors **OpenAI Platform API spend** (organization costs), not ChatGPT Plus/Team message limits. Those subscription quotas are not exposed by a public API.
+This monitors **OpenAI Platform API credit balance** (prepaid credits), not ChatGPT Plus/Team message limits.
 
-### Admin API key
+### Browser session token (required)
 
-1. Open [OpenAI Platform](https://platform.openai.com) → organization settings → **Admin keys**
-2. Create an **Admin API key** (a normal `sk-...` model key cannot read organization costs)
-3. Paste it into `api_key` in `config.json`
+OpenAI does **not** expose remaining credits through normal `sk-...` / `sk-proj-...` API keys. You need the **dashboard session key** that the website uses for billing.
+
+#### Where to get `session_token`
+
+1. Log in at [platform.openai.com](https://platform.openai.com)
+2. Open DevTools (`F12`) → **Network**
+3. Enable **Fetch/XHR** (or clear the list and keep DevTools open)
+4. Open Billing overview (or reload it):  
+   https://platform.openai.com/settings/organization/billing/overview
+5. In Network, find this request:
+
+   `GET https://api.openai.com/v1/dashboard/billing/credit_grants`
+
+   (Status should be **200**)
+6. Open **Headers** → **Request Headers** → **Authorization**
+7. Copy the value after `Bearer ` — it looks like:
+
+   `sess-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
+
+   **Use this `sess-...` token.** Do **not** use:
+   - a JWT starting with `eyJ...` (login/auth token — different)
+   - an API key starting with `sk-` / `sk-proj-`
+   - Cloudflare cookies (`cf_clearance`, `__cf_bm`, etc.)
+8. Paste **only** the `sess-...` value into `session_token` in `config.json` (without the word `Bearer`)
+
+Example:
+
+```json
+{
+  "id": "openai-main",
+  "label": "OpenAI API",
+  "provider": "openai",
+  "enabled": true,
+  "session_token": "sess-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "widget": { "position": { "x": 50, "y": 350 } }
+}
+```
+
+`sess-` tokens expire. If the widget shows **Error**, repeat the steps and paste a fresh value from `credit_grants`.
 
 ### Account fields
 
 | Field | Description |
 |---|---|
-| `api_key` | OpenAI **Admin** API key — required |
-| `monthly_limit` | Your monthly USD budget — required (used as the widget limit) |
-| `organization` | Optional display handle (`@name` subtitle). Leave empty if unused |
+| `session_token` | Dashboard session key from `Authorization: Bearer sess-...` on `GET /v1/dashboard/billing/credit_grants` — **required** |
 
 ### What the widget shows (OpenAI)
 
 | Area | Content |
 |---|---|
-| Header | OpenAI icon, account label, optional `@organization`, status badge |
-| Left panel | **Usage** (% of budget), **Used** (USD spent this month), **Monthly Limit** (`monthly_limit`) |
-| Right panel | Remaining USD, plan, top cost category (`Top:`), billing-cycle reset (1st of next month UTC) |
+| Left panel | Usage %, Used credits, **Credit Limit** (total granted) |
+| Right panel | Remaining balance (`total_available`), plan, “Credit balance”, grant expiry |
 
-Spend is fetched from `GET /v1/organization/costs` for the current calendar month (UTC). Thresholds (warning / critical) apply to `% of monthly_limit`.
+If remaining is **$0**, usage shows **100%** / **Limit reached**.
 
 ---
 
@@ -388,10 +420,7 @@ Docs: https://cursor.com/docs/account/teams/admin-api
 
 ### OpenAI
 
-- `GET https://api.openai.com/v1/organization/costs` — organization spend for the current month (Admin API key)
-- Optional `group_by=line_item` for the top cost category shown in the detail panel
-
-Docs: https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/costs/
+- `GET https://api.openai.com/v1/dashboard/billing/credit_grants` — credit balance (`Authorization: Bearer sess-...` from the platform dashboard)
 
 ---
 
@@ -401,7 +430,7 @@ Docs: https://developers.openai.com/api/reference/resources/admin/subresources/o
 |---|---|
 | Widget shows **Error** (Cursor) | Refresh `session_token` from browser cookies |
 | Widget shows **Error** (Copilot) | Regenerate token; ensure `copilot` / Plan read scope |
-| Widget shows **Error** (OpenAI) | Use an **Admin** API key; set `monthly_limit` > 0 |
+| Widget shows **Error** (OpenAI) | Refresh `session_token` from Network → `credit_grants` → `Authorization: Bearer sess-...` |
 | App starts but no window | Another instance may be running — check system tray |
 | `run.bat` fails on Windows | Use `py -3 src\main.py` or recreate `.venv` with `py -3 -m venv .venv` |
 | Cursor % and counts look odd | The app uses dashboard % as source of truth; raw event counts from the API are not shown directly |
@@ -418,7 +447,7 @@ All account-specific values (usernames, tokens, organizations, emails, widget ti
 | Source code / scripts | No hardcoded usernames, orgs, tokens, or emails |
 | Test scripts | Read credentials via `scripts/_config_loader.py` |
 | Widget labels | `organization`, `github_username`, `cursor_email`, and `label` come from config |
-| OpenAI budget | Set `monthly_limit` in USD; spend comes from the Admin Costs API |
+| OpenAI credits | `session_token` = `sess-...` from `GET /v1/dashboard/billing/credit_grants` (not `eyJ...` / `sk-...`) |
 | API responses | Used for usage metrics only; display identity prefers config when set |
 
 ---
@@ -436,7 +465,7 @@ Copilot_Desktop_Monitor/
 │   ├── config.py          # Config loading and validation
 │   ├── github_api.py      # GitHub Copilot usage client
 │   ├── cursor_api.py      # Cursor usage client
-│   ├── openai_api.py      # OpenAI organization costs client
+│   ├── openai_api.py      # OpenAI credit balance client (sess- token)
 │   └── provider_icons.py  # Header icon loader
 ├── run.bat / run.sh       # Launch scripts
 └── requirements.txt
