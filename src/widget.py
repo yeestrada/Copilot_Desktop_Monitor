@@ -8,8 +8,8 @@ from typing import Callable
 
 from config import AccountConfig, MonitorConfig
 from provider_icons import get_provider_icon
-from usage_types import AccountUsage, UsageStatus
 from platform_utils import apply_window_attributes, format_period_date, ui_font
+from usage_types import AccountUsage, UsageStatus
 
 STATUS_COLORS = {
     UsageStatus.OK: ("#0d1117", "#238636", "#3fb950"),
@@ -26,6 +26,13 @@ PROVIDER_LABELS = {
     "openai": "OpenAI",
     "siliconflow": "SiliconFlow",
     "claude_code": "Claude Code",
+}
+
+AUTH_BUTTON_LABELS = {
+    "github_copilot": "Sign in to GitHub",
+    "cursor": "Sign in to Cursor",
+    "openai": "Sign in to OpenAI",
+    "siliconflow": "Sign in to SiliconFlow",
 }
 
 BG_APP = "#0d1117"
@@ -134,12 +141,16 @@ class AccountWidget(tk.Toplevel):
         account: AccountConfig,
         on_refresh: Callable[[], AccountUsage],
         on_close: Callable[[], None],
+        on_authenticate: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(root)
         self.monitor_config = monitor_config
         self.account = account
         self.on_refresh = on_refresh
         self.on_close = on_close
+        self.on_authenticate = on_authenticate
+        self._auth_in_progress = False
+        self._auth_button_label = AUTH_BUTTON_LABELS.get(account.provider, "Sign in")
         self._drag_offset_x = 0
         self._drag_offset_y = 0
         self._collapsed = bool(account.widget.collapsed)
@@ -148,16 +159,29 @@ class AccountWidget(tk.Toplevel):
         self.title(f"{account.display_title} · {provider_label}")
         self.overrideredirect(True)
         apply_window_attributes(self, account.widget.always_on_top, account.widget.opacity)
-        self.geometry(f"{WIDGET_WIDTH}x{WIDGET_HEIGHT}+{account.widget.position_x}+{account.widget.position_y}")
+        pos_x, pos_y = self._clamp_position(account.widget.position_x, account.widget.position_y)
+        if pos_x != account.widget.position_x or pos_y != account.widget.position_y:
+            account.widget.position_x = pos_x
+            account.widget.position_y = pos_y
+            monitor_config.save_widget_position(account.id, pos_x, pos_y)
+        self.geometry(f"{WIDGET_WIDTH}x{WIDGET_HEIGHT}+{pos_x}+{pos_y}")
         self.configure(bg=BG_APP)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self._build_ui(provider_label)
         self._apply_collapsed()
+        self._show_initial_auth_state()
         self.bind("<ButtonPress-1>", self._start_drag)
         self.bind("<B1-Motion>", self._on_drag)
         self.bind("<ButtonRelease-1>", self._end_drag)
         self.bind("<Escape>", lambda _event: self.on_close())
+
+    def _clamp_position(self, x: int, y: int) -> tuple[int, int]:
+        screen_w = max(self.winfo_screenwidth(), WIDGET_WIDTH)
+        screen_h = max(self.winfo_screenheight(), WIDGET_HEIGHT)
+        clamped_x = max(0, min(int(x), screen_w - WIDGET_WIDTH))
+        clamped_y = max(0, min(int(y), screen_h - WIDGET_HEIGHT))
+        return clamped_x, clamped_y
 
     def _card(self, parent: tk.Widget) -> tk.Frame:
         return tk.Frame(
@@ -206,6 +230,7 @@ class AccountWidget(tk.Toplevel):
         )
         self.title_label.grid(row=0, column=1, sticky="w")
         self._title_tip = HoverTooltip(self.title_label)
+        self._title_default_font = ui_font(11, bold=True)
 
         self.user_label = tk.Label(
             header_left,
@@ -271,6 +296,23 @@ class AccountWidget(tk.Toplevel):
         )
         self.collapse_btn.pack(side="right", padx=(0, 8))
         self.collapse_btn.bind("<Button-1>", lambda _e: self.toggle_collapsed())
+
+        auth_label = self._auth_button_label
+        self.auth_button = tk.Button(
+            header_right,
+            text=auth_label,
+            font=ui_font(8, bold=True),
+            fg=FG_PRIMARY,
+            bg="#238636",
+            activeforeground=FG_PRIMARY,
+            activebackground="#2ea043",
+            relief="flat",
+            padx=8,
+            pady=2,
+            cursor="hand2",
+            borderwidth=0,
+            command=self._handle_authenticate,
+        )
 
         self._status_card = tk.Frame(
             header_right,
@@ -389,6 +431,151 @@ class AccountWidget(tk.Toplevel):
         self.error_label.pack(fill="x", pady=(8, 0))
         self._error_tip = HoverTooltip(self.error_label)
 
+    def _account_needs_initial_auth(self) -> bool:
+        if self.on_authenticate is None:
+            return False
+        if self.account.provider == "github_copilot":
+            return not self.account.token.strip()
+        if self.account.provider == "openai":
+            if self.account.api_key.strip():
+                return False
+            return not self.account.session_token.strip()
+        if self.account.provider == "siliconflow":
+            return not self.account.session_token.strip() or not self.account.organization.strip()
+        if self.account.provider != "cursor":
+            return False
+        if self.account.cursor_auth_mode == "admin_api":
+            return False
+        return not self.account.session_token.strip()
+
+    def _show_initial_auth_state(self) -> None:
+        if not self._account_needs_initial_auth():
+            return
+        if self.account.provider == "github_copilot":
+            message = "Sign in to GitHub to load your Copilot usage."
+        elif self.account.provider == "openai":
+            message = "Sign in to OpenAI to load your credit balance."
+        elif self.account.provider == "siliconflow":
+            message = "Sign in to SiliconFlow to load your wallet balance."
+        else:
+            message = "Sign in to Cursor to load your usage quota."
+        self._present_auth_required(message)
+
+    def _present_auth_required(self, message: str, *, show_login: bool = True) -> None:
+        _, badge_bg, _ = STATUS_COLORS[UsageStatus.ERROR]
+        self.status_badge.configure(text="Sign in", bg=badge_bg)
+        if not self._collapsed:
+            self._set_truncated_label(
+                self.error_label,
+                self._error_tip,
+                message,
+                ERROR_TEXT_WIDTH,
+            )
+        self._show_auth_prompt(show_login)
+
+    def _handle_authenticate(self) -> None:
+        if self._auth_in_progress:
+            return
+        if self.on_authenticate is None:
+            return
+        self.on_authenticate()
+
+    def begin_browser_auth(self, message: str | None = None) -> None:
+        self._auth_in_progress = True
+        _, badge_bg, _ = STATUS_COLORS[UsageStatus.UNKNOWN]
+        self.status_badge.configure(text="Signing in", bg=badge_bg)
+        self.auth_button.configure(state="disabled", text="Waiting...")
+        if not self._collapsed:
+            self._set_truncated_label(
+                self.error_label,
+                self._error_tip,
+                message or "Complete sign-in in your browser. This widget will connect automatically.",
+                ERROR_TEXT_WIDTH,
+            )
+        self._sync_geometry()
+
+    def update_browser_auth_message(self, message: str) -> None:
+        self._set_truncated_label(
+            self.error_label,
+            self._error_tip,
+            message,
+            ERROR_TEXT_WIDTH,
+        )
+        self._sync_geometry()
+
+    def show_github_device_code(self, user_code: str) -> None:
+        """Show the 8-char GitHub device code generated by this app."""
+        code = user_code.strip().upper()
+        copied = self._copy_to_clipboard(code)
+        _, badge_bg, accent = STATUS_COLORS[UsageStatus.UNKNOWN]
+
+        if self._collapsed:
+            self.toggle_collapsed()
+
+        self.status_badge.configure(text="Pegar", bg=accent, font=ui_font(9, bold=True))
+        self._set_truncated_label(
+            self.title_label,
+            self._title_tip,
+            f"Codigo: {code}",
+            HEADER_TEXT_WIDTH,
+            fg=accent,
+            font=ui_font(13, bold=True),
+        )
+        self._set_truncated_label(
+            self.user_label,
+            self._user_tip,
+            "Generado por este Monitor (copiado)" if copied else "Generado por este Monitor",
+            HEADER_TEXT_WIDTH,
+            fg=FG_PRIMARY,
+        )
+
+        message = (
+            f"Pega {code} en GitHub (8 caracteres, con guion). "
+            "NO uses DUO aqui. DUO (6 digitos) solo aparece despues, "
+            "si GitHub pide verificacion en dos pasos."
+        )
+        self._user_tip.set_text(message)
+        self._set_truncated_label(
+            self.error_label,
+            self._error_tip,
+            message,
+            ERROR_TEXT_WIDTH,
+        )
+        try:
+            self.lift()
+            self.attributes("-topmost", True)
+            self.after(2500, lambda: self.attributes("-topmost", False))
+        except tk.TclError:
+            pass
+        self._sync_geometry()
+
+    def _copy_to_clipboard(self, text: str) -> bool:
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.update_idletasks()
+            return True
+        except tk.TclError:
+            return False
+
+    def end_browser_auth(self, *, success: bool, message: str = "") -> None:
+        self._auth_in_progress = False
+        self.auth_button.configure(state="normal", text=self._auth_button_label)
+        self.status_badge.configure(font=ui_font(9, bold=True))
+        self.title_label.configure(font=self._title_default_font, fg=FG_PRIMARY)
+        if success:
+            self._show_auth_prompt(False)
+            return
+        if message:
+            self._present_auth_required(message)
+
+    def _show_auth_prompt(self, visible: bool) -> None:
+        if visible and self.on_authenticate is not None:
+            if not self.auth_button.winfo_ismapped():
+                self.auth_button.pack(anchor="e", pady=(0, 4), before=self._status_card)
+        elif self.auth_button.winfo_ismapped():
+            self.auth_button.pack_forget()
+
     def _configure_progress_style(self, accent: str) -> None:
         style = ttk.Style(self)
         style.theme_use("default")
@@ -456,7 +643,7 @@ class AccountWidget(tk.Toplevel):
             # Size to the full header so the status card is never clipped/shrunk.
             height = max(self.winfo_reqheight(), self._root_frame.winfo_reqheight(), 1)
         else:
-            height = WIDGET_HEIGHT
+            height = max(WIDGET_HEIGHT, self.winfo_reqheight())
         if self.winfo_ismapped():
             x, y = self.winfo_x(), self.winfo_y()
         else:
@@ -466,14 +653,30 @@ class AccountWidget(tk.Toplevel):
         self.maxsize(WIDGET_WIDTH, height)
 
     def refresh_now(self) -> None:
+        if self._auth_in_progress:
+            return
         _, badge_bg, _ = STATUS_COLORS[UsageStatus.UNKNOWN]
         self.status_badge.configure(text="Loading...", bg=badge_bg)
         self._set_truncated_label(self.error_label, self._error_tip, "", ERROR_TEXT_WIDTH)
+        if not self._auth_in_progress:
+            self._show_auth_prompt(False)
 
         def worker() -> None:
             try:
                 usage = self.on_refresh()
             except Exception as exc:  # noqa: BLE001
+                needs_auth = (
+                    self.on_authenticate is not None
+                    and (
+                        (
+                            self.account.provider == "cursor"
+                            and self.account.cursor_auth_mode != "admin_api"
+                        )
+                        or self.account.provider == "github_copilot"
+                        or self.account.provider == "openai"
+                        or self.account.provider == "siliconflow"
+                    )
+                )
                 usage = AccountUsage(
                     used=0.0,
                     limit=None,
@@ -489,6 +692,7 @@ class AccountWidget(tk.Toplevel):
                     organization=self.account.organization,
                     provider=self.account.provider,
                     label=self.account.label,
+                    needs_auth=needs_auth,
                 )
             self.after(0, lambda: self.update_usage(usage))
 
@@ -517,14 +721,14 @@ class AccountWidget(tk.Toplevel):
             )
             self.progress["value"] = 0
             self._clear_details()
-            self._set_truncated_label(
-                self.error_label,
-                self._error_tip,
+            self._present_auth_required(
                 usage.message or "Failed to query the API",
-                ERROR_TEXT_WIDTH,
+                show_login=bool(usage.needs_auth and self.on_authenticate is not None),
             )
             self._sync_geometry()
             return
+
+        self._show_auth_prompt(False)
 
         self._set_truncated_label(self.error_label, self._error_tip, "", ERROR_TEXT_WIDTH)
 

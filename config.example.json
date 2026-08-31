@@ -57,7 +57,7 @@
       "label": "OpenAI API",
       "provider": "openai",
       "enabled": true,
-      "session_token": "sess-your_openai_dashboard_session_token",
+      "session_token": "",
       "widget": {
         "enabled": true,
         "position": {
@@ -71,8 +71,8 @@
       "label": "SiliconFlow",
       "provider": "siliconflow",
       "enabled": true,
-      "session_token": "your_siliconflow_browser_cookie_header",
-      "organization": "your_x_subject_id",
+      "session_token": "",
+      "organization": "",
       "widget": {
         "enabled": true,
         "position": {

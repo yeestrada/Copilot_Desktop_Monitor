@@ -183,10 +183,6 @@ class AccountConfig:
             errors.append(f"{prefix}: provider must be one of {', '.join(sorted(PROVIDERS))}")
 
         if self.provider == "github_copilot":
-            if not self.github_username:
-                errors.append(f"{prefix}: missing github_username")
-            if not self.token:
-                errors.append(f"{prefix}: missing token")
             if self.account_type not in {"user", "organization", "enterprise"}:
                 errors.append(f"{prefix}: account_type must be user, organization, or enterprise")
             if self.account_type == "organization" and not self.organization:
@@ -206,22 +202,30 @@ class AccountConfig:
                     errors.append(f"{prefix}: missing api_key for Cursor admin API")
                 if not self.cursor_email:
                     errors.append(f"{prefix}: missing cursor_email for Cursor admin API")
+            elif (
+                self.cursor_auth_mode == "auto"
+                and not self.api_key
+                and not self.session_token
+            ):
+                pass  # Allow in-app sign-in from the widget.
+            elif self.cursor_auth_mode == "session" and not self.session_token:
+                pass  # Allow in-app sign-in from the widget.
             elif not self.api_key and not self.session_token:
                 errors.append(f"{prefix}: provide api_key and/or session_token for Cursor")
 
         if self.provider == "openai":
-            if not self.session_token:
-                errors.append(
-                    f"{prefix}: missing session_token (browser JWT Bearer from platform.openai.com)"
-                )
+            if not self.session_token and not self.api_key:
+                pass  # Allow in-app sign-in from the widget.
 
         if self.provider == "siliconflow":
-            if not self.session_token:
+            if not self.session_token and not self.organization:
+                pass  # Allow in-app sign-in from the widget.
+            elif not self.session_token:
                 errors.append(
                     f"{prefix}: missing session_token (Cookie header from "
                     "cloud.siliconflow.com wallet peek)"
                 )
-            if not self.organization:
+            elif not self.organization:
                 errors.append(
                     f"{prefix}: missing organization (x-subject-id from wallet peek headers)"
                 )
@@ -379,6 +383,59 @@ class MonitorConfig:
         for account in self.accounts:
             if account.id == account_id:
                 account.widget.collapsed = collapsed
+                break
+
+    def save_account_github_token(
+        self,
+        account_id: str,
+        token: str,
+        github_username: str | None = None,
+    ) -> None:
+        data = _read_json(CONFIG_PATH)
+        for account in data.get("accounts", []):
+            if str(account.get("id")) == account_id:
+                account["token"] = token
+                if github_username:
+                    account["github_username"] = github_username
+                break
+        _write_json(CONFIG_PATH, data)
+        for account in self.accounts:
+            if account.id == account_id:
+                account.token = token.strip()
+                if github_username:
+                    account.github_username = github_username.strip()
+                break
+
+    def save_account_session_token(self, account_id: str, session_token: str) -> None:
+        data = _read_json(CONFIG_PATH)
+        for account in data.get("accounts", []):
+            if str(account.get("id")) == account_id:
+                account["session_token"] = session_token
+                break
+        _write_json(CONFIG_PATH, data)
+        for account in self.accounts:
+            if account.id == account_id:
+                account.session_token = session_token.strip()
+                break
+
+    def save_account_siliconflow_session(
+        self,
+        account_id: str,
+        *,
+        session_token: str,
+        organization: str,
+    ) -> None:
+        data = _read_json(CONFIG_PATH)
+        for account in data.get("accounts", []):
+            if str(account.get("id")) == account_id:
+                account["session_token"] = session_token
+                account["organization"] = organization
+                break
+        _write_json(CONFIG_PATH, data)
+        for account in self.accounts:
+            if account.id == account_id:
+                account.session_token = session_token.strip()
+                account.organization = organization.strip()
                 break
 
     def save_autostart_enabled(self, enabled: bool) -> None:

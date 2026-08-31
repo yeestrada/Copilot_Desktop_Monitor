@@ -6,6 +6,7 @@ import threading
 import tkinter as tk
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -15,6 +16,11 @@ from PIL import Image, ImageDraw
 
 import autostart
 from config import AccountConfig, MonitorConfig
+from cursor_auth_flow import CursorBrowserAuth
+from github_auth import open_github_device_login
+from github_auth_flow import GitHubBrowserAuth
+from openai_auth_flow import OpenAIBrowserAuth
+from siliconflow_auth_flow import SiliconFlowBrowserAuth
 from single_instance import SingleInstanceError, ensure_single_instance, notify_already_running
 from usage_factory import UsageClient, create_usage_client
 from usage_types import AccountUsage, UsageStatus
@@ -70,6 +76,7 @@ class UsageMonitorApp:
 
         self.tray_icon: pystray.Icon | None = None
         self._stop = False
+        self._auth_sessions: dict[str, CursorBrowserAuth | GitHubBrowserAuth | OpenAIBrowserAuth] = {}
 
     def fetch_usage(self, instance: AccountInstance) -> AccountUsage:
         usage = instance.client.fetch_usage()
@@ -183,7 +190,177 @@ class UsageMonitorApp:
         )
         self.tray_icon = pystray.Icon("usage_monitor", image, "Usage Monitor", menu)
 
+    def _authenticate_account(self, instance: AccountInstance) -> None:
+        if instance.account.id in self._auth_sessions:
+            return
+
+        widget = instance.widget
+        if widget is None:
+            return
+
+        if instance.account.provider == "github_copilot":
+            self._authenticate_github(instance, widget)
+        elif instance.account.provider == "cursor":
+            self._authenticate_cursor(instance, widget)
+        elif instance.account.provider == "openai":
+            self._authenticate_openai(instance, widget)
+        elif instance.account.provider == "siliconflow":
+            self._authenticate_siliconflow(instance, widget)
+
+    def _authenticate_github(self, instance: AccountInstance, widget: AccountWidget) -> None:
+        widget.begin_browser_auth("Opening GitHub sign-in in your browser...")
+
+        def schedule_ui(callback: Callable[[], None]) -> None:
+            if widget.winfo_exists():
+                widget.after(0, callback)
+
+        def on_waiting(user_code: str, verification_uri: str) -> None:
+            widget.show_github_device_code(user_code)
+
+            def open_browser() -> None:
+                if not widget.winfo_exists():
+                    return
+                try:
+                    open_github_device_login(user_code, verification_uri)
+                except Exception as exc:  # noqa: BLE001
+                    widget.end_browser_auth(
+                        success=False,
+                        message=f"Could not open browser: {exc}",
+                    )
+
+            widget.after(1200, open_browser)
+
+        def on_success(token: str, github_username: str) -> None:
+            self.config.save_account_github_token(
+                instance.account.id,
+                token,
+                github_username or None,
+            )
+            instance.client = create_usage_client(instance.account)
+            widget.end_browser_auth(success=True)
+            widget.refresh_now()
+
+        def on_failure(message: str) -> None:
+            widget.end_browser_auth(success=False, message=message)
+
+        def on_complete() -> None:
+            self._auth_sessions.pop(instance.account.id, None)
+
+        session = GitHubBrowserAuth(
+            schedule_ui=schedule_ui,
+            on_waiting=on_waiting,
+            on_success=on_success,
+            on_failure=on_failure,
+            on_complete=on_complete,
+        )
+        self._auth_sessions[instance.account.id] = session
+        session.start()
+
+    def _authenticate_openai(self, instance: AccountInstance, widget: AccountWidget) -> None:
+        def schedule_ui(callback: Callable[[], None]) -> None:
+            if widget.winfo_exists():
+                widget.after(0, callback)
+
+        def on_progress(message: str) -> None:
+            widget.update_browser_auth_message(message)
+
+        widget.begin_browser_auth(
+            "Se abrira Firefox en Billing. Inicia sesion; el monitor conectara solo."
+        )
+
+        def on_success(token: str, _account_label: str) -> None:
+            self.config.save_account_session_token(instance.account.id, token)
+            instance.client = create_usage_client(instance.account)
+            widget.end_browser_auth(success=True)
+            widget.refresh_now()
+
+        def on_failure(message: str) -> None:
+            widget.end_browser_auth(success=False, message=message)
+
+        def on_complete() -> None:
+            self._auth_sessions.pop(instance.account.id, None)
+
+        session = OpenAIBrowserAuth(
+            schedule_ui=schedule_ui,
+            on_success=on_success,
+            on_failure=on_failure,
+            on_complete=on_complete,
+            on_progress=on_progress,
+        )
+        self._auth_sessions[instance.account.id] = session
+        session.start()
+
+    def _authenticate_siliconflow(self, instance: AccountInstance, widget: AccountWidget) -> None:
+        def schedule_ui(callback: Callable[[], None]) -> None:
+            if widget.winfo_exists():
+                widget.after(0, callback)
+
+        def on_progress(message: str) -> None:
+            widget.update_browser_auth_message(message)
+
+        widget.begin_browser_auth(
+            "Se abrira Firefox en SiliconFlow Billing. Inicia sesion; el monitor conectara solo."
+        )
+
+        def on_success(cookie_header: str, subject_id: str, _account_label: str) -> None:
+            self.config.save_account_siliconflow_session(
+                instance.account.id,
+                session_token=cookie_header,
+                organization=subject_id,
+            )
+            instance.client = create_usage_client(instance.account)
+            widget.end_browser_auth(success=True)
+            widget.refresh_now()
+
+        def on_failure(message: str) -> None:
+            widget.end_browser_auth(success=False, message=message)
+
+        def on_complete() -> None:
+            self._auth_sessions.pop(instance.account.id, None)
+
+        session = SiliconFlowBrowserAuth(
+            schedule_ui=schedule_ui,
+            on_success=on_success,
+            on_failure=on_failure,
+            on_complete=on_complete,
+            on_progress=on_progress,
+        )
+        self._auth_sessions[instance.account.id] = session
+        session.start()
+
+    def _authenticate_cursor(self, instance: AccountInstance, widget: AccountWidget) -> None:
+        widget.begin_browser_auth()
+
+        def schedule_ui(callback: Callable[[], None]) -> None:
+            if widget.winfo_exists():
+                widget.after(0, callback)
+
+        def on_success(token: str, _account_label: str) -> None:
+            self.config.save_account_session_token(instance.account.id, token)
+            instance.client = create_usage_client(instance.account)
+            widget.end_browser_auth(success=True)
+            widget.refresh_now()
+
+        def on_failure(message: str) -> None:
+            widget.end_browser_auth(success=False, message=message)
+
+        def on_complete() -> None:
+            self._auth_sessions.pop(instance.account.id, None)
+
+        session = CursorBrowserAuth(
+            schedule_ui=schedule_ui,
+            on_success=on_success,
+            on_failure=on_failure,
+            on_complete=on_complete,
+        )
+        self._auth_sessions[instance.account.id] = session
+        session.start()
+
     def _close_account_widget(self, instance: AccountInstance) -> None:
+        session = self._auth_sessions.pop(instance.account.id, None)
+        if session is not None:
+            session.cancel()
+
         if instance.widget is not None:
             instance.widget.destroy()
             instance.widget = None
@@ -194,6 +371,9 @@ class UsageMonitorApp:
 
     def quit(self) -> None:
         self._stop = True
+        for session in self._auth_sessions.values():
+            session.cancel()
+        self._auth_sessions.clear()
         if self.tray_icon is not None:
             self.tray_icon.stop()
         for instance in self.instances:
@@ -209,6 +389,12 @@ class UsageMonitorApp:
                 account=instance.account,
                 on_refresh=lambda target=instance: self.fetch_usage(target),
                 on_close=lambda target=instance: self._close_account_widget(target),
+                on_authenticate=(
+                    (lambda target=instance: self._authenticate_account(target))
+                    if instance.account.provider
+                    in {"cursor", "github_copilot", "openai", "siliconflow"}
+                    else None
+                ),
             )
             usage = instance.latest_usage
             if not str(usage.username or "").strip():
@@ -226,6 +412,21 @@ class UsageMonitorApp:
 
         self.root.after(1000, self._schedule_refresh)
         self.root.mainloop()
+
+
+def show_fatal_startup_error(message: str) -> None:
+    text = message.strip() or "Unknown startup error."
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        messagebox.showerror("Usage Monitor", text, parent=root)
+        root.destroy()
+    except Exception:
+        print(text, file=sys.stderr)
 
 
 def parse_args() -> argparse.Namespace:
@@ -270,10 +471,10 @@ def main() -> None:
     try:
         app = UsageMonitorApp()
     except FileNotFoundError as exc:
-        print(str(exc))
+        show_fatal_startup_error(str(exc))
         sys.exit(1)
     except RuntimeError as exc:
-        print(str(exc))
+        show_fatal_startup_error(str(exc))
         sys.exit(1)
 
     app.run()

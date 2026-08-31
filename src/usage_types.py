@@ -30,6 +30,7 @@ class AccountUsage:
     organization: str = ""
     provider: str = ""
     label: str = ""
+    needs_auth: bool = False
 
     @property
     def status_label(self) -> str:
