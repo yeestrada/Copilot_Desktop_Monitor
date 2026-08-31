@@ -33,7 +33,7 @@ PLAN_LIMITS_CREDITS = {
     "enterprise": 39.0,
 }
 
-PROVIDERS = {"github_copilot", "cursor", "openai", "siliconflow"}
+PROVIDERS = {"github_copilot", "cursor", "openai", "siliconflow", "claude_code"}
 
 DEFAULT_ACCOUNT: dict[str, Any] = {
     "id": "",
@@ -137,6 +137,8 @@ class AccountConfig:
             return "OpenAI"
         if self.provider == "siliconflow":
             return "SiliconFlow"
+        if self.provider == "claude_code":
+            return "Claude Code"
         return "GitHub Copilot"
 
     @property
@@ -150,6 +152,13 @@ class AccountConfig:
             return self.organization.strip()
         if self.provider == "siliconflow":
             return self.organization.strip()
+        if self.provider == "claude_code":
+            if self.organization.strip():
+                return self.organization.strip()
+            email = self.cursor_email.strip()
+            if email and "@" in email:
+                return email.split("@", 1)[0]
+            return email or "claude"
         return self.github_username
 
     def resolve_monthly_limit(self, billing_mode: str, api_limit: float | None) -> float | None:
@@ -216,6 +225,12 @@ class AccountConfig:
                 errors.append(
                     f"{prefix}: missing organization (x-subject-id from wallet peek headers)"
                 )
+
+        if self.provider == "claude_code":
+            if not self.session_token.strip():
+                # Allowed when ~/.claude/.credentials.json or CLAUDE_CODE_OAUTH_TOKEN exists.
+                pass
+            # For claude.ai web quota: organization must be the org UUID from /usage URL.
 
         return errors
 

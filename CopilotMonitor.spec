@@ -20,6 +20,7 @@ hiddenimports = [
     "cursor_api",
     "openai_api",
     "siliconflow_api",
+    "claude_code_api",
     "usage_factory",
     "usage_types",
     "widget",

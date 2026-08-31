@@ -12,6 +12,7 @@ ICON_FILES = {
     "github_copilot": "github_copilot.png",
     "openai": "openai.png",
     "siliconflow": "siliconflow.png",
+    "claude_code": "claude_code.png",
 }
 
 _photo_cache: dict[tuple[int, str, int], tk.PhotoImage] = {}

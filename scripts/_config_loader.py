@@ -91,3 +91,15 @@ def load_siliconflow_account(path: Path | None = None) -> dict[str, Any]:
     if not str(account.get("organization", "")).strip():
         raise ValueError("Missing organization (x-subject-id) for SiliconFlow in config.json")
     return account
+
+
+def first_claude_code_account(raw: dict[str, Any]) -> dict[str, Any]:
+    return first_account_by_provider(raw, "claude_code")
+
+
+def load_claude_code_account(path: Path | None = None) -> dict[str, Any]:
+    raw = load_raw_config(path)
+    account = first_claude_code_account(raw)
+    if not account:
+        raise ValueError("No Claude Code account found in config.json accounts[]")
+    return account

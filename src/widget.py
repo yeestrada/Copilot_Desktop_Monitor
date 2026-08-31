@@ -25,6 +25,7 @@ PROVIDER_LABELS = {
     "cursor": "Cursor",
     "openai": "OpenAI",
     "siliconflow": "SiliconFlow",
+    "claude_code": "Claude Code",
 }
 
 BG_APP = "#0d1117"
@@ -560,13 +561,20 @@ class AccountWidget(tk.Toplevel):
                 self.usage_label, self._usage_tip, "Usage: --", MAIN_TEXT_WIDTH, fg=FG_PRIMARY
             )
 
-        self._set_truncated_label(
-            self.used_label, self._used_tip, f"Used: {used_text}", MAIN_TEXT_WIDTH
-        )
         limit_title = (
             "Credit Limit"
             if usage.billing_mode in {"openai_credits", "siliconflow_balance"}
+            else "Session Limit"
+            if usage.billing_mode == "claude_code_quota"
             else "Monthly Limit"
+        )
+        used_title = (
+            "Session"
+            if usage.billing_mode == "claude_code_quota"
+            else "Used"
+        )
+        self._set_truncated_label(
+            self.used_label, self._used_tip, f"{used_title}: {used_text}", MAIN_TEXT_WIDTH
         )
         self._set_truncated_label(
             self.limit_label,
@@ -590,6 +598,8 @@ class AccountWidget(tk.Toplevel):
                         fourth_line = f"Top: {usage.organization}"
                 elif usage.provider == "siliconflow":
                     fourth_line = usage.organization
+                elif usage.provider == "claude_code":
+                    fourth_line = usage.organization or "—"
                 else:
                     fourth_line = f"Mix: {usage.organization}"
 
@@ -598,6 +608,8 @@ class AccountWidget(tk.Toplevel):
                 if usage.billing_mode == "openai_credits"
                 else "Period"
                 if usage.billing_mode == "siliconflow_balance"
+                else "Resets"
+                if usage.billing_mode == "claude_code_quota"
                 else "Reset"
             )
             self._set_detail_labels(

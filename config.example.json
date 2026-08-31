@@ -80,6 +80,22 @@
           "y": 500
         }
       }
+    },
+    {
+      "id": "claude-code-main",
+      "label": "Claude Code",
+      "provider": "claude_code",
+      "enabled": true,
+      "session_token": "paste_claude_ai_Cookie_or_sessionKey_here",
+      "organization": "your-claude-org-uuid-from-usage-url",
+      "plan": "max",
+      "widget": {
+        "enabled": true,
+        "position": {
+          "x": 50,
+          "y": 650
+        }
+      }
     }
   ]
 }
