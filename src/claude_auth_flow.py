@@ -42,8 +42,8 @@ class ClaudeBrowserAuth:
 
         self._schedule_ui(
             lambda: self._notify_progress(
-                "Firefox opened claude.ai Usage. Sign in and wait; "
-                "the monitor will detect the session automatically."
+                "Firefox opened claude.ai Usage. Sign in to the account/plan you want "
+                "to monitor; the monitor will detect that session automatically."
             )
         )
         self._stop.clear()

@@ -7,7 +7,11 @@ Cross-platform desktop widget (Windows, macOS, Linux) that monitors monthly AI u
 - One widget per account (mix Copilot, Cursor, OpenAI, SiliconFlow, and Claude Code in the same app)
 - Unified layout across providers: usage %, used amount, monthly limit, progress bar, and detail panel
 - Provider icons in the widget header (GitHub Copilot / Cursor / OpenAI / SiliconFlow / Claude Code)
+- In-widget **Sign in** for each provider (browser / device flow); all user-facing text is **English**
+- First-run bootstrap: the app creates `config.json` from an **internal** template (all five providers, all `enabled: false`)
+- Account on/off is controlled only by `accounts[].enabled` (there is no separate `widget.enabled`)
 - Expand/collapse, fixed card size, truncated labels with hover tooltips
+- Always-on-top widgets (including after GitHub device-code sign-in)
 - System tray with per-account refresh, autostart toggle, and quit
 - Draggable widgets with saved position per account
 - Optional login autostart (Windows, macOS, Linux)
@@ -16,7 +20,8 @@ Cross-platform desktop widget (Windows, macOS, Linux) that monitors monthly AI u
 
 - Python 3.10+
 - Tkinter (bundled with Python on Windows/macOS; on Linux install `python3-tk`)
-- Python packages: `requests`, `pystray`, `Pillow` (see `requirements.txt`)
+- Python packages: `requests`, `pystray`, `Pillow`, plus browser helpers used for auto-auth (see `requirements.txt`)
+- **Firefox** recommended for OpenAI / SiliconFlow / Claude **Sign in** (cookie / localStorage reading on Windows)
 
 ## Quick start
 
@@ -41,19 +46,21 @@ py -3 src/main.py
 
 ### 2. Create configuration
 
-Copy the example config and edit your credentials:
+**Preferred (standalone exe or first launch):** run the app once with no `config.json` next to it. The app writes a default `config.json` from its **built-in** template (not from an external `config.example.json`), shows a notice, and exits. Then edit that file and set `"enabled": true` on the accounts you want.
+
+**Dev / manual:**
 
 ```bash
 cp config.example.json config.json
 ```
 
-> **Security:** `config.json` contains secrets (tokens). It is listed in `.gitignore` and must never be committed.
+> **Security:** `config.json` contains secrets (tokens / cookies). It is listed in `.gitignore` and must never be committed.
 
-The launcher scripts (`run.bat` / `run.sh`) create `config.json` from `config.example.json` automatically if it does not exist.
+`config.example.json` in the repo is documentation only. Shipping only `CopilotMonitor.exe` to another machine is enough — the default account list (including Claude Code) lives inside the binary.
 
 ### 3. Configure accounts
 
-Edit `config.json` and add one or more entries under `accounts[]`:
+Edit `config.json` and enable the accounts you need under `accounts[]`. Example (trimmed):
 
 ```json
 {
@@ -68,7 +75,7 @@ Edit `config.json` and add one or more entries under `accounts[]`:
       "github_username": "your-username",
       "token": "ghp_xxxxxxxx",
       "account_type": "user",
-      "plan": "enterprise",
+      "plan": "pro",
       "widget": { "position": { "x": 50, "y": 50 } }
     },
     {
@@ -76,16 +83,16 @@ Edit `config.json` and add one or more entries under `accounts[]`:
       "label": "Cursor",
       "provider": "cursor",
       "enabled": true,
-      "session_token": "your_cursor_session_token",
+      "session_token": "",
       "cursor_auth_mode": "auto",
-      "widget": { "position": { "x": 50, "y": 220 } }
+      "widget": { "position": { "x": 50, "y": 200 } }
     },
     {
       "id": "openai-main",
       "label": "OpenAI API",
       "provider": "openai",
       "enabled": true,
-      "session_token": "sess-your_openai_dashboard_session_token",
+      "session_token": "",
       "widget": { "position": { "x": 50, "y": 350 } }
     },
     {
@@ -93,9 +100,9 @@ Edit `config.json` and add one or more entries under `accounts[]`:
       "label": "SiliconFlow",
       "provider": "siliconflow",
       "enabled": true,
-      "session_token": "paste_full_Cookie_header_here",
-      "organization": "your_x_subject_id",
-      "widget": { "position": { "x": 50, "y": 480 } }
+      "session_token": "",
+      "organization": "",
+      "widget": { "position": { "x": 50, "y": 500 } }
     },
     {
       "id": "claude-code-main",
@@ -105,11 +112,13 @@ Edit `config.json` and add one or more entries under `accounts[]`:
       "session_token": "",
       "organization": "",
       "plan": "max",
-      "widget": { "position": { "x": 50, "y": 610 } }
+      "widget": { "position": { "x": 50, "y": 650 } }
     }
   ]
 }
 ```
+
+You can leave tokens empty and use **Sign in** on the widget.
 
 ### 4. Run the app
 
@@ -144,11 +153,28 @@ Only one app instance runs at a time. If nothing appears, check the system tray 
 | `id` | Yes | Unique account identifier (used to save widget position) |
 | `label` | Yes | Widget title (e.g. `Copilot Personal`, `Cursor`) |
 | `provider` | Yes | `github_copilot`, `cursor`, `openai`, `siliconflow`, or `claude_code` |
-| `enabled` | No | `false` keeps the account in config but does not show its widget |
+| `enabled` | No | `true` loads the account **and** its widget. `false` keeps the entry in config but does not show it. There is **no** `widget.enabled` flag. |
 | `thresholds` | No | Per-account override of global warning/critical % |
 | `widget.always_on_top` | No | Override global always-on-top |
 | `widget.opacity` | No | Override global opacity |
 | `widget.position.x` / `y` | No | Initial screen position (updated when you drag the widget) |
+| `widget.collapsed` | No | Remember collapsed header state |
+
+---
+
+## Sign in (in-widget)
+
+When credentials are missing, the widget shows **Sign in** (English). Behavior by provider:
+
+| Provider | Sign-in flow |
+|---|---|
+| GitHub Copilot | OAuth **device code** in the browser; paste the 8-character code shown on the widget |
+| Cursor | Opens browser login and polls for `WorkosCursorSessionToken` |
+| OpenAI | Opens **Firefox** on Billing and polls until a `sess-` token is available |
+| SiliconFlow | Opens **Firefox** on SiliconFlow Billing and reads session cookie + subject id |
+| Claude Code | Opens **Firefox** on claude.ai Usage; picks org via `lastActiveOrg` / paid plan preference |
+
+Credentials are written back into `config.json` after a successful sign-in.
 
 ---
 
@@ -162,6 +188,8 @@ Generate a Personal Access Token at https://github.com/settings/tokens
 |---|---|
 | Personal Copilot (Pro / Pro+) | Fine-grained PAT with **Account permissions → Plan → Read** |
 | Copilot via organization | Classic PAT with billing/admin permissions for the org |
+
+Or leave `token` empty and use **Sign in** (device flow).
 
 The app tries the internal Copilot API first (`data_source: auto`), then falls back to the GitHub billing API.
 
@@ -193,7 +221,7 @@ The app tries the internal Copilot API first (`data_source: auto`), then falls b
 
 ### Personal accounts (Pro, etc.)
 
-**User API Keys do not expose personal usage quota.** For personal accounts you need a **session token** from the browser.
+**User API Keys do not expose personal usage quota.** For personal accounts you need a **session token** from the browser, or use **Sign in**.
 
 1. Log in at [cursor.com](https://cursor.com)
 2. Open DevTools → **Application** → **Cookies** → `cursor.com`
@@ -202,7 +230,7 @@ The app tries the internal Copilot API first (`data_source: auto`), then falls b
 
 The token may be URL-encoded (`%3A%3A` instead of `::`). Paste it as copied — the app decodes it automatically.
 
-Tokens expire. If the widget shows **Error** / `401`, copy a fresh cookie value.
+Tokens expire. If the widget shows **Error** / `401`, copy a fresh cookie value or Sign in again.
 
 ### Team admin API (optional)
 
@@ -218,7 +246,7 @@ For team spend tracking via the official Admin API:
 
 | Field | Description |
 |---|---|
-| `session_token` | `WorkosCursorSessionToken` cookie — **required for personal usage** |
+| `session_token` | `WorkosCursorSessionToken` cookie — **required for personal usage** (or Sign in) |
 | `cursor_auth_mode` | `auto` (default), `session`, or `admin_api` |
 | `api_key` | Admin API key (team mode only; not for personal quota) |
 | `cursor_email` | Account email for display (`@` handle) and `admin_api`; recommended for personal accounts |
@@ -270,7 +298,15 @@ The progress bar and status thresholds are based on the dashboard %, not the raw
 
 This monitors **OpenAI Platform API credit balance** (prepaid credits), not ChatGPT Plus/Team message limits.
 
-### Browser session token (required)
+### Recommended: Sign in (Firefox)
+
+1. Enable the OpenAI account in `config.json` (`"enabled": true`).
+2. Click **Sign in** on the widget.
+3. Complete login in **Firefox** on the Billing page; the monitor detects the `sess-` token automatically.
+
+Edge/Chrome on Windows often cannot expose the OpenAI session to the monitor; use Firefox.
+
+### Manual: browser session token
 
 OpenAI does **not** expose remaining credits through normal `sk-...` / `sk-proj-...` API keys. You need the **dashboard session key** that the website uses for billing.
 
@@ -310,13 +346,13 @@ Example:
 }
 ```
 
-`sess-` tokens expire. If the widget shows **Error**, repeat the steps and paste a fresh value from `credit_grants`.
+`sess-` tokens expire. If the widget shows **Error**, Sign in again or paste a fresh value from `credit_grants`.
 
 ### Account fields
 
 | Field | Description |
 |---|---|
-| `session_token` | Dashboard session key from `Authorization: Bearer sess-...` on `GET /v1/dashboard/billing/credit_grants` — **required** |
+| `session_token` | Dashboard session key (`sess-...`) — required unless you use Sign in |
 
 ### What the widget shows (OpenAI)
 
@@ -337,7 +373,11 @@ The old public endpoint `GET /v1/user/info` was retired (**HTTP 410**, Aug 2026)
 
 `GET https://cloud.siliconflow.com/walletd-server/api/v1/subject/profile/peek`
 
-### Where to get the credentials (required)
+### Recommended: Sign in (Firefox)
+
+Click **Sign in** on the widget, log in to SiliconFlow Billing in Firefox, and wait for the monitor to capture the session cookie and subject id.
+
+### Manual credentials
 
 You need two values from the browser Network tab — **not** an API key (`sk-...`).
 
@@ -368,7 +408,7 @@ You need two values from the browser Network tab — **not** an API key (`sk-...
 - **Firefox:** the Cookie preview often ends with `…`. That truncated value is **invalid** (causes `latin-1` / encode errors). Click the Cookie row and copy the **full** value, or use **Raw** headers / **Storage → Cookies** and rebuild `name=value; name2=value2`.
 - **Chrome:** use **Headers → Request Headers → Cookie** → right‑click → Copy value.
 - Do **not** paste JSON with collapsed `{…}` placeholders from DevTools previews.
-- Cookies expire. On **Error** / 401 / 403, copy a fresh `Cookie` + `x-subject-id` from `profile/peek` again.
+- Cookies expire. On **Error** / 401 / 403, Sign in again or copy a fresh `Cookie` + `x-subject-id` from `profile/peek`.
 
 Example:
 
@@ -390,8 +430,8 @@ Example:
 
 | Field | Description |
 |---|---|
-| `session_token` | Full browser **`Cookie`** header from Network → `profile/peek` — **required** |
-| `organization` | **`x-subject-id`** request header from the same call — **required** |
+| `session_token` | Full browser **`Cookie`** header from Network → `profile/peek` — **required** (or Sign in) |
+| `organization` | **`x-subject-id`** request header from the same call — **required** (or Sign in) |
 | `plan` | Optional display label (defaults to `wallet`) |
 
 ### What the widget shows (SiliconFlow)
@@ -409,7 +449,22 @@ This shows your **live Claude plan quota** — the same numbers as **claude.ai �
 
 **Do not use** an Anthropic API key (`sk-ant-...`). That is API spend, not plan windows.
 
-### Recommended: claude.ai web usage (real Settings bars)
+### Recommended: Sign in (Firefox)
+
+1. Enable the Claude account (`"enabled": true`). Leave `session_token` / `organization` empty if you want a clean login.
+2. Click **Sign in** on the widget.
+3. In Firefox, sign in to the **Claude account / org / plan you want to monitor** (Free, Pro, Max, Team, …).
+4. Stay on [Settings → Usage](https://claude.ai/settings/usage) until the widget connects.
+
+The monitor:
+
+- Does **not** silently use `%USERPROFILE%\.claude\.credentials.json` or `CLAUDE_CODE_OAUTH_TOKEN` (that often forced a local Free Claude Code login).
+- Selects organization using `lastActiveOrg` when present, otherwise prefers higher-tier capabilities (Max / Team / Pro before Free `chat`).
+- Normalizes `utilization` correctly when the API returns **1 = 1%** (0–100 scale) vs **0.01 = 1%** (0–1 fraction), so the widget matches the website instead of jumping to 100%.
+
+**Free plan:** when the API returns empty quota windows, the widget shows OK at 0% with a Free-plan note (not a hard error).
+
+### Manual: claude.ai Cookie + org UUID
 
 1. Log in at [claude.ai](https://claude.ai)
 2. Open [Settings → Usage](https://claude.ai/settings/usage)
@@ -437,28 +492,20 @@ Example:
 }
 ```
 
-### Alternative: Claude Code OAuth
+### Alternative: Claude Code OAuth (paste only)
 
-If Claude Code is signed in on this machine, the app can also call:
+You may paste a Claude Code OAuth `accessToken` into `session_token` (optional refresh into `api_key`). This is **explicit config only** — not auto-discovered from disk/env.
 
-`GET https://api.anthropic.com/api/oauth/usage`
-
-using:
-
-- `session_token` = `claudeAiOauth.accessToken`, or
-- `%USERPROFILE%\.claude\.credentials.json`, or
-- env `CLAUDE_CODE_OAUTH_TOKEN`
-
-OAuth can return **429** when many Claude Code sessions are open; the **claude.ai Cookie + org UUID** path is usually more reliable for a desktop monitor.
+OAuth can return **429** when many Claude Code sessions are open; the **claude.ai Cookie + org UUID** path (Sign in) is usually more reliable.
 
 ### Account fields
 
 | Field | Description |
 |---|---|
-| `session_token` | **Preferred:** full claude.ai **Cookie** (or `sessionKey`). Or Claude Code OAuth `accessToken` |
-| `organization` | **Preferred:** org UUID from `.../organizations/{uuid}/usage` |
+| `session_token` | **Preferred:** full claude.ai **Cookie** (or `sessionKey`). Or pasted Claude Code OAuth `accessToken` |
+| `organization` | **Preferred:** org UUID from `.../organizations/{uuid}/usage` (filled by Sign in) |
 | `api_key` | Optional OAuth refresh token override |
-| `plan` | Optional display label (`pro`, `max`, …) |
+| `plan` | Optional display fallback (`pro`, `max`, `team`, …); live plan is detected from org capabilities when possible |
 
 ### What the widget shows (Claude Code)
 
@@ -477,6 +524,7 @@ OAuth can return **429** when many Claude Code sessions are open; the **claude.a
 |---|---|
 | Move widget | Click and drag anywhere on the widget |
 | Refresh one account | Click **↻** on that widget |
+| Sign in | Click **Sign in** when credentials are missing / expired |
 | Close one widget | Click **×** or press **Esc** (app stays in tray if other widgets are open) |
 | Refresh all | System tray → account name or **Refresh all** |
 | Toggle autostart | System tray → **Launch at startup** |
@@ -501,6 +549,7 @@ The tray icon shows a summary tooltip with all open accounts. Right-click for:
 | **Warning** | Usage ≥ warning threshold |
 | **Critical** | Usage ≥ critical threshold (default 90%) |
 | **Limit reached** | Usage ≥ 100% |
+| **Sign in** | Credentials missing; use the Sign in button |
 | **Error** | Invalid token, expired session, missing permissions, or API failure |
 
 ---
@@ -541,9 +590,12 @@ PyInstaller builds on the **target platform only** (no cross-compilation).
 
 After building:
 
-1. Copy `config.example.json` to `dist/config.json`
-2. Edit credentials in `dist/config.json`
-3. Run the executable from `dist/`
+1. Copy `CopilotMonitor.exe` (Windows) or `CopilotMonitor` (Linux) wherever you want — including another drive/USB.
+2. First run creates `config.json` **next to the executable** from the **internal** default (all five providers, all disabled).
+3. Edit `config.json`, set `"enabled": true` on the accounts you need, save, and run again.
+4. Use **Sign in** on each widget (or paste credentials).
+
+You do **not** need to ship `config.example.json` with the exe.
 
 Icons in `assets/icons/` are bundled automatically for the header and PyInstaller build.
 
@@ -553,7 +605,7 @@ Icons in `assets/icons/` are bundled automatically for the header and PyInstalle
 
 - **Linux:** install `python3-tk` if the window does not appear. Some desktops do not support window transparency (`opacity`).
 - **macOS:** accessibility permission may be requested the first time you use the system tray.
-- **Windows:** autostart uses the current user's registry (no administrator rights required).
+- **Windows:** autostart uses the current user's registry (no administrator rights required). Firefox is recommended for OpenAI / SiliconFlow / Claude Sign in.
 - **Single instance:** starting the app twice exits silently; use the tray to manage the running instance.
 
 ---
@@ -562,6 +614,7 @@ Icons in `assets/icons/` are bundled automatically for the header and PyInstalle
 
 ### GitHub Copilot
 
+- Device OAuth for Sign in (`login/device/code` + access token)
 - `GET /copilot_internal/user` — personal premium-interaction quota (preferred)
 - `GET /users/{username}/settings/billing/premium_request/usage`
 - `GET /users/{username}/settings/billing/ai_credit/usage`
@@ -579,7 +632,8 @@ Docs: https://cursor.com/docs/account/teams/admin-api
 
 ### OpenAI
 
-- `GET https://api.openai.com/v1/dashboard/billing/credit_grants` — credit balance (`Authorization: Bearer sess-...` from the platform dashboard)
+- `GET https://api.openai.com/v1/dashboard/billing/credit_grants` — credit balance (`Authorization: Bearer sess-...`)
+- Sign in may exchange Firefox localStorage JWT → `sess-` via onboarding login
 
 ### SiliconFlow
 
@@ -587,8 +641,9 @@ Docs: https://cursor.com/docs/account/teams/admin-api
 
 ### Claude Code
 
+- `GET https://claude.ai/api/organizations` — list orgs during Sign in
 - `GET https://claude.ai/api/organizations/{org_id}/usage` — live plan bars (browser Cookie + org UUID; same as Settings → Usage)
-- `GET https://api.anthropic.com/api/oauth/usage` — same quota via Claude Code OAuth Bearer
+- `GET https://api.anthropic.com/api/oauth/usage` — same quota via **pasted** Claude Code OAuth Bearer (optional)
 
 ---
 
@@ -596,11 +651,16 @@ Docs: https://cursor.com/docs/account/teams/admin-api
 
 | Problem | Solution |
 |---|---|
-| Widget shows **Error** (Cursor) | Refresh `session_token` from browser cookies |
-| Widget shows **Error** (Copilot) | Regenerate token; ensure `copilot` / Plan read scope |
-| Widget shows **Error** (OpenAI) | Refresh `session_token` from Network → `credit_grants` → `Authorization: Bearer sess-...` |
-| Widget shows **Error** (SiliconFlow) | Refresh `session_token` (Cookie) and `organization` (`x-subject-id`) from Network → `profile/peek`. If the message mentions `latin-1` or `…`, the Cookie was truncated — copy the full header. |
-| Widget shows **Error** (Claude Code) | From [claude.ai/settings/usage](https://claude.ai/settings/usage) copy Cookie → `session_token` and org UUID from the `/usage` URL → `organization`. Or use Claude Code OAuth `accessToken`. Do not use `sk-ant-...`. |
+| First run only shows a notice and exits | Expected: edit the new `config.json`, set at least one `"enabled": true`, start again |
+| Generated `config.json` missing Claude | Update to a build that embeds the internal template; delete old `config.json` and relaunch once |
+| Widget shows **Error** (Cursor) | Sign in again or refresh `session_token` from browser cookies |
+| Widget shows **Error** (Copilot) | Sign in (device code) or regenerate token; ensure Plan read / copilot scope |
+| Widget shows **Error** (OpenAI) | Sign in with Firefox, or refresh `sess-...` from Network → `credit_grants` |
+| Widget shows **Error** (SiliconFlow) | Sign in with Firefox, or refresh Cookie + `x-subject-id` from `profile/peek`. Truncated Cookie (`…`) causes encode errors |
+| Widget shows **Error** / wrong plan (Claude) | Sign in with Firefox on the intended account. Do not rely on local `~/.claude` OAuth. Do not use `sk-ant-...` |
+| Claude shows **100%** but website shows **~1%** | Fixed in current builds (utilization scale). Update the exe and refresh |
+| Claude stuck on Free | Sign in again while the desired org/plan is active on claude.ai (`lastActiveOrg`) |
+| Copilot widget drops behind other windows | Fixed in current builds (always-on-top restored after device-code prompt) |
 | App starts but no window | Another instance may be running — check system tray |
 | `run.bat` fails on Windows | Use `py -3 src\main.py` or recreate `.venv` with `py -3 -m venv .venv` |
 | Cursor % and counts look odd | The app uses dashboard % as source of truth; raw event counts from the API are not shown directly |
@@ -609,7 +669,7 @@ Docs: https://cursor.com/docs/account/teams/admin-api
 
 ## Configuration-only data
 
-All account-specific values (usernames, tokens, organizations, emails, widget titles, positions) must live in `config.json`. The repository ships only generic placeholders in `config.example.json`.
+All account-specific values (usernames, tokens, organizations, emails, widget titles, positions) must live in `config.json`. The repository ships generic placeholders in `config.example.json` for developers; the **runtime default** for missing `config.json` is the internal template in `src/config.py`.
 
 | Rule | Detail |
 |---|---|
@@ -617,9 +677,10 @@ All account-specific values (usernames, tokens, organizations, emails, widget ti
 | Source code / scripts | No hardcoded usernames, orgs, tokens, or emails |
 | Test scripts | Read credentials via `scripts/_config_loader.py` |
 | Widget labels | `organization`, `github_username`, `cursor_email`, and `label` come from config |
-| OpenAI credits | `session_token` = `sess-...` from `GET /v1/dashboard/billing/credit_grants` (not `eyJ...` / `sk-...`) |
-| SiliconFlow wallet | `session_token` = full **Cookie** + `organization` = **`x-subject-id`** from Network → `profile/peek` on [cloud.siliconflow.com/me/expensebill](https://cloud.siliconflow.com/me/expensebill) |
-| Claude Code quota | Live `five_hour`/`seven_day` from `claude.ai/.../organizations/{org}/usage` (Cookie + org UUID) or OAuth `/api/oauth/usage` — not `sk-ant-...` |
+| Account visibility | Only `accounts[].enabled` — no `widget.enabled` |
+| OpenAI credits | `session_token` = `sess-...` (or Sign in); not `eyJ...` / `sk-...` |
+| SiliconFlow wallet | Cookie + `x-subject-id` (or Sign in) |
+| Claude Code quota | Cookie + org UUID (or Sign in); optional pasted OAuth — not silent `~/.claude` / env |
 | API responses | Used for usage metrics only; display identity prefers config when set |
 
 ---
@@ -628,19 +689,27 @@ All account-specific values (usernames, tokens, organizations, emails, widget ti
 
 ```
 Copilot_Desktop_Monitor/
-├── assets/icons/          # Provider icons (Copilot, Cursor, OpenAI, SiliconFlow, Claude Code)
-├── config.example.json    # Template configuration
-├── config.json            # Your local config (gitignored)
+├── assets/icons/                 # Provider icons
+├── config.example.json           # Dev/docs template (optional; not required next to the exe)
+├── config.json                   # Your local config (gitignored)
 ├── src/
-│   ├── main.py            # App entry, tray, multi-widget loop
-│   ├── widget.py          # Floating account widget UI
-│   ├── config.py          # Config loading and validation
-│   ├── github_api.py      # GitHub Copilot usage client
-│   ├── cursor_api.py      # Cursor usage client
-│   ├── openai_api.py      # OpenAI credit balance client (sess- token)
-│   ├── siliconflow_api.py # SiliconFlow wallet client (Cookie + x-subject-id)
-│   ├── claude_code_api.py # Claude Code plan quota client (OAuth)
-│   └── provider_icons.py  # Header icon loader
-├── run.bat / run.sh       # Launch scripts
+│   ├── main.py                   # App entry, tray, multi-widget loop, Sign in wiring
+│   ├── widget.py                 # Floating account widget UI (English)
+│   ├── config.py                 # Config load/validate + internal DEFAULT_CONFIG bootstrap
+│   ├── github_api.py             # GitHub Copilot usage client
+│   ├── github_auth.py / _flow.py # Copilot device OAuth Sign in
+│   ├── cursor_api.py             # Cursor usage client
+│   ├── cursor_auth.py / _flow.py # Cursor cookie Sign in
+│   ├── openai_api.py             # OpenAI credit balance (sess- token)
+│   ├── openai_auth.py / _flow.py # OpenAI Firefox / sess- Sign in
+│   ├── siliconflow_api.py        # SiliconFlow wallet client
+│   ├── siliconflow_auth.py / _flow.py
+│   ├── claude_code_api.py        # Claude plan quota (+ utilization scale handling)
+│   ├── claude_auth.py / _flow.py # Claude Firefox Sign in + org selection
+│   ├── browser_utils.py          # Open login URLs / Firefox helpers
+│   ├── browser_session.py        # Cross-browser cookie helpers
+│   └── provider_icons.py         # Header icon loader
+├── run.bat / run.sh              # Launch scripts
+├── build.bat / build-linux.sh    # PyInstaller builds
 └── requirements.txt
 ```

@@ -66,7 +66,7 @@ def read_session_from_browsers() -> tuple[str | None, str | None, list[str]]:
         notes.append(str(exc))
         return None, None, notes
 
-    notes.append("Claude: organization UUID obtained automatically.")
+    notes.append("Claude: organization UUID selected from the signed-in session.")
     return cookie_header, org_id, notes
 
 
@@ -135,11 +135,71 @@ def _resolve_org_id(cookie_header: str) -> str:
     if not orgs:
         raise ClaudeAuthError("Account returned no organizations.")
 
+    preferred = _pick_preferred_org(orgs, cookie_header)
+    if preferred:
+        return preferred
+    raise ClaudeAuthError("No valid organization UUID found.")
+
+
+def _pick_preferred_org(orgs: list[dict[str, Any]], cookie_header: str) -> str | None:
+    """Prefer the org the user is using on claude.ai, then paid plans over Free."""
+    by_id: dict[str, dict[str, Any]] = {}
     for org in orgs:
         candidate = str(org.get("uuid") or org.get("id") or "").strip()
         if _is_org_uuid(candidate):
-            return candidate
-    raise ClaudeAuthError("No valid organization UUID found.")
+            by_id[candidate.lower()] = org
+
+    if not by_id:
+        return None
+
+    active = _cookie_value(cookie_header, "lastActiveOrg")
+    if active and active.lower() in by_id:
+        return active
+
+    ranked = sorted(
+        by_id.items(),
+        key=lambda item: (_org_plan_rank(item[1]), item[0]),
+        reverse=True,
+    )
+    return ranked[0][0]
+
+
+def _org_plan_rank(org: dict[str, Any]) -> int:
+    caps = org.get("capabilities")
+    if not isinstance(caps, list):
+        caps = []
+    normalized = [str(item).strip().lower() for item in caps if str(item).strip()]
+    ranks = {
+        "claude_max": 100,
+        "max": 100,
+        "claude_team": 85,
+        "team": 85,
+        "claude_enterprise": 90,
+        "enterprise": 90,
+        "claude_pro_plus": 70,
+        "pro_plus": 70,
+        "claude_pro": 60,
+        "pro": 60,
+        "api": 40,
+        "chat": 1,
+    }
+    best = 0
+    for cap in normalized:
+        best = max(best, ranks.get(cap, 5 if cap.startswith("claude_") else 0))
+    return best
+
+
+def _cookie_value(cookie_header: str, name: str) -> str | None:
+    target = name.lower()
+    for part in cookie_header.split(";"):
+        piece = part.strip()
+        if "=" not in piece:
+            continue
+        key, value = piece.split("=", 1)
+        if key.strip().lower() == target:
+            text = value.strip()
+            return text or None
+    return None
 
 
 def _as_org_list(payload: Any) -> list[dict[str, Any]]:

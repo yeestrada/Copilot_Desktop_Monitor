@@ -45,12 +45,10 @@ class ClaudeCodeClient:
     def fetch_usage(self) -> AccountUsage:
         period_label = datetime.now(timezone.utc).strftime("%m/%Y")
         has_web = bool(self.account.session_token.strip() and self.account.organization.strip())
-        has_oauth_hint = bool(self.account.session_token.strip()) or bool(
-            os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
-        )
-        credentials_path = _credentials_path()
-        has_local_oauth = bool(credentials_path and credentials_path.is_file())
-        if not has_web and not has_oauth_hint and not has_local_oauth:
+        has_configured_oauth = _has_configured_oauth_token(self.account)
+        # Do not silently use ~/.claude/.credentials.json or env tokens — users must Sign in
+        # (or paste credentials into config) so Free vs Pro/Max is the account they chose.
+        if not has_web and not has_configured_oauth:
             return self._error_usage(
                 period_label,
                 "Sign in to Claude to load your plan quota.",
@@ -73,6 +71,13 @@ class ClaudeCodeClient:
         weekly_opus = _pick_bucket(
             payload, "seven_day_opus", kinds=("weekly_scoped",), model="opus"
         )
+
+        # Re-normalize with payload-wide scale detection (0–1 vs 0–100).
+        percent_scale = _payload_uses_percent_scale(payload, source=source)
+        session = _renormalize_bucket(session, percent_scale=percent_scale)
+        weekly = _renormalize_bucket(weekly, percent_scale=percent_scale)
+        weekly_sonnet = _renormalize_bucket(weekly_sonnet, percent_scale=percent_scale)
+        weekly_opus = _renormalize_bucket(weekly_opus, percent_scale=percent_scale)
 
         profile = _fetch_account_profile(self.account)
         display_name = (
@@ -137,11 +142,8 @@ class ClaudeCodeClient:
         if _is_org_uuid(username):
             username = "claude"
 
-        plan_label = (
-            _plan_from_capabilities((profile or {}).get("capabilities"))
-            or self.account.plan
-            or "claude"
-        )
+        detected_plan = _plan_from_capabilities((profile or {}).get("capabilities"))
+        plan_label = detected_plan or self.account.plan or "claude"
 
         return AccountUsage(
             used=percent,
@@ -233,8 +235,8 @@ class ClaudeCodeClient:
         access_token, refresh_token, credentials_path = _resolve_oauth_tokens(self.account)
         if not access_token:
             raise ClaudeCodeApiError(
-                "missing Claude OAuth accessToken "
-                "(session_token, CLAUDE_CODE_OAUTH_TOKEN, or ~/.claude/.credentials.json)"
+                "missing Claude OAuth accessToken in config. "
+                "Use Sign in (claude.ai), or paste an OAuth accessToken into session_token."
             )
 
         response = self._get_oauth_usage(access_token)
@@ -334,9 +336,61 @@ def _plan_from_capabilities(capabilities: Any) -> str:
     for cap in caps:
         if cap.startswith("claude_"):
             return cap.removeprefix("claude_").replace("_", " ") or "free"
+    for name in ("max", "team", "enterprise", "pro+", "pro", "api"):
+        if name in caps:
+            return name
     if caps == ["chat"] or caps == []:
         return "free"
     return ""
+
+
+def _collect_utilizations(payload: dict[str, Any]) -> list[float]:
+    values: list[float] = []
+    for key in (
+        "five_hour",
+        "seven_day",
+        "seven_day_sonnet",
+        "seven_day_opus",
+        "seven_day_oauth_apps",
+        "seven_day_omelette",
+        "seven_day_cowork",
+    ):
+        bucket = payload.get(key)
+        if isinstance(bucket, dict):
+            raw = _to_float(bucket.get("utilization"))
+            if raw is None:
+                raw = _to_float(bucket.get("percent"))
+            if raw is not None:
+                values.append(raw)
+    limits = payload.get("limits")
+    if isinstance(limits, list):
+        for item in limits:
+            if not isinstance(item, dict):
+                continue
+            raw = _to_float(item.get("utilization"))
+            if raw is None:
+                raw = _to_float(item.get("percent"))
+            if raw is not None:
+                values.append(raw)
+    return values
+
+
+def _payload_uses_percent_scale(payload: dict[str, Any], *, source: str) -> bool:
+    """Detect whether utilization values are already 0–100 (vs 0–1 fractions).
+
+    OAuth `/api/oauth/usage` returns percentages (e.g. 1.0 == 1%).
+    Web `/organizations/.../usage` often returns fractions (0.01 == 1%), but some
+    Team payloads use percentages. Multiplying a percent `1` by 100 caused 100%.
+    """
+    values = _collect_utilizations(payload)
+    if any(value > 1.0 for value in values):
+        return True
+    if source == "oauth":
+        return True
+    if any(0.0 < value < 1.0 for value in values):
+        return False
+    # Only 0 and/or 1 — treat as percent so 1 stays 1%, not 100%.
+    return True
 
 
 def _fetch_account_profile(account: AccountConfig) -> dict[str, Any] | None:
@@ -420,46 +474,34 @@ def _is_org_uuid(value: str) -> bool:
         return False
 
 
+def _has_configured_oauth_token(account: AccountConfig) -> bool:
+    """True only when config itself contains an OAuth token (not browser Cookie)."""
+    token = unquote(account.session_token).strip()
+    if not token:
+        return False
+    if _looks_like_web_session(token):
+        return False
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    return token.startswith("sk-ant-") or token.startswith("eyJ")
+
+
 def _resolve_oauth_tokens(account: AccountConfig) -> tuple[str, str, Path | None]:
+    """Resolve OAuth tokens from config only — never auto-login via local Claude Code files."""
     configured = unquote(account.session_token).strip()
     if configured.lower().startswith("bearer "):
         configured = configured[7:].strip()
-    if configured.lower().startswith("cookie:") or "sessionKey=" in configured:
+    if (
+        not configured
+        or configured.lower().startswith("cookie:")
+        or "sessionKey=" in configured
+        or _looks_like_web_session(account.session_token)
+        or (not configured.startswith("sk-ant-") and not configured.startswith("eyJ"))
+    ):
         configured = ""
-    if _is_org_uuid(account.organization) and _looks_like_web_session(account.session_token):
-        configured = ""
 
-    env_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
-
-    credentials_path = _credentials_path()
-    file_access = ""
-    file_refresh = ""
-    expires_at: float | None = None
-    if credentials_path is not None and credentials_path.is_file():
-        try:
-            data = json.loads(credentials_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
-        oauth = data.get("claudeAiOauth") if isinstance(data, dict) else None
-        if isinstance(oauth, dict):
-            file_access = str(oauth.get("accessToken") or oauth.get("access_token") or "").strip()
-            file_refresh = str(oauth.get("refreshToken") or oauth.get("refresh_token") or "").strip()
-            expires_at = _to_float(oauth.get("expiresAt") or oauth.get("expires_at"))
-
-    access = configured or env_token or file_access
-    refresh = file_refresh or unquote(account.api_key).strip()
-
-    # Proactively refresh when local credentials are expired.
-    if refresh and expires_at is not None:
-        # expiresAt may be seconds or milliseconds.
-        exp = expires_at / 1000.0 if expires_at > 10_000_000_000 else expires_at
-        if datetime.now(timezone.utc).timestamp() >= exp - 60:
-            try:
-                access = _refresh_access_token(refresh, credentials_path)
-            except ClaudeCodeApiError:
-                pass
-
-    return access, refresh, credentials_path
+    refresh = unquote(account.api_key).strip()
+    return configured, refresh, None
 
 
 def _credentials_path() -> Path | None:
@@ -567,7 +609,24 @@ def _pick_bucket(
     return None
 
 
+def _renormalize_bucket(
+    bucket: dict[str, Any] | None,
+    *,
+    percent_scale: bool,
+) -> dict[str, Any] | None:
+    if bucket is None:
+        return None
+    utilization = float(bucket["utilization"])
+    if not percent_scale and 0.0 <= utilization <= 1.0:
+        utilization *= 100.0
+    return {
+        "utilization": utilization,
+        "resets_at": bucket.get("resets_at"),
+    }
+
+
 def _normalize_bucket(value: Any) -> dict[str, Any] | None:
+    """Extract raw utilization; scaling to percent happens in _renormalize_bucket."""
     if not isinstance(value, dict):
         return None
     utilization = _to_float(value.get("utilization"))
@@ -577,9 +636,6 @@ def _normalize_bucket(value: Any) -> dict[str, Any] | None:
         utilization = _to_float(value.get("used_percentage"))
     if utilization is None:
         return None
-    # Some payloads return 0–1 instead of 0–100.
-    if 0.0 <= utilization <= 1.0:
-        utilization *= 100.0
     return {
         "utilization": utilization,
         "resets_at": value.get("resets_at") or value.get("resetsAt"),
