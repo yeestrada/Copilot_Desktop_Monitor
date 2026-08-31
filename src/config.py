@@ -197,6 +197,14 @@ class AccountConfig:
                     errors.append(f"{prefix}: missing api_key for Cursor admin API")
                 if not self.cursor_email:
                     errors.append(f"{prefix}: missing cursor_email for Cursor admin API")
+            elif (
+                self.cursor_auth_mode == "auto"
+                and not self.api_key
+                and not self.session_token
+            ):
+                pass  # Allow in-app sign-in from the widget.
+            elif self.cursor_auth_mode == "session" and not self.session_token:
+                pass  # Allow in-app sign-in from the widget.
             elif not self.api_key and not self.session_token:
                 errors.append(f"{prefix}: provide api_key and/or session_token for Cursor")
 
@@ -364,6 +372,18 @@ class MonitorConfig:
         for account in self.accounts:
             if account.id == account_id:
                 account.widget.collapsed = collapsed
+                break
+
+    def save_account_session_token(self, account_id: str, session_token: str) -> None:
+        data = _read_json(CONFIG_PATH)
+        for account in data.get("accounts", []):
+            if str(account.get("id")) == account_id:
+                account["session_token"] = session_token
+                break
+        _write_json(CONFIG_PATH, data)
+        for account in self.accounts:
+            if account.id == account_id:
+                account.session_token = session_token.strip()
                 break
 
     def save_autostart_enabled(self, enabled: bool) -> None:

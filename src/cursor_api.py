@@ -57,6 +57,7 @@ class CursorClient:
         now = datetime.now(timezone.utc)
         period_label = f"{now.month:02d}/{now.year}"
         auth_mode = self.account.cursor_auth_mode
+        session_error: CursorApiError | None = None
 
         if auth_mode == "admin_api":
             try:
@@ -68,23 +69,33 @@ class CursorClient:
             try:
                 return self._fetch_cookie_usage(period_label)
             except CursorApiError as exc:
+                session_error = exc
                 if auth_mode == "session":
-                    return self._error_usage(period_label, str(exc))
+                    return self._session_auth_error(period_label, exc)
 
-        if self.account.api_key and self.account.cursor_email:
+        if self._should_try_admin_fallback():
             try:
                 return self._fetch_admin_api_usage(period_label)
             except CursorApiError as exc:
-                return self._error_usage(period_label, str(exc))
+                if session_error is None:
+                    return self._error_usage(period_label, str(exc))
 
-        if self.account.api_key:
-            return self._error_usage(
-                period_label,
-                "Cursor User API keys do not expose usage quota. "
-                "Add session_token (WorkosCursorSessionToken cookie) for personal accounts.",
-            )
+        if session_error is not None:
+            return self._session_auth_error(period_label, session_error)
 
-        return self._error_usage(period_label, "missing session_token for Cursor")
+        return self._session_auth_error(
+            period_label,
+            CursorApiError("Sign in to Cursor to load your usage quota."),
+        )
+
+    def _should_try_admin_fallback(self) -> bool:
+        if not (self.account.api_key.strip() and self.account.cursor_email.strip()):
+            return False
+        return self.account.cursor_auth_mode in {"auto", "admin_api"}
+
+    def _session_auth_error(self, period_label: str, exc: CursorApiError | str) -> AccountUsage:
+        message = str(exc).strip() or "Sign in to Cursor to load your usage quota."
+        return self._error_usage(period_label, message, needs_auth=True)
 
     def _normalize_session_token(self, token: str) -> str:
         return unquote(token).strip()
@@ -140,7 +151,7 @@ class CursorClient:
         if response.status_code == 401:
             raise CursorApiError(
                 "invalid or expired session_token (401). "
-                "Copy a fresh WorkosCursorSessionToken from cursor.com cookies."
+                "Sign in again from the widget or copy a fresh WorkosCursorSessionToken cookie."
             )
         if not response.ok:
             detail = _safe_json(response).get("message", response.text[:200])
@@ -291,7 +302,13 @@ class CursorClient:
             label=self.account.label,
         )
 
-    def _error_usage(self, period_label: str, message: str) -> AccountUsage:
+    def _error_usage(
+        self,
+        period_label: str,
+        message: str,
+        *,
+        needs_auth: bool = False,
+    ) -> AccountUsage:
         return AccountUsage(
             used=0,
             limit=None,
@@ -305,6 +322,7 @@ class CursorClient:
             message=message,
             provider="cursor",
             label=self.account.label,
+            needs_auth=needs_auth,
         )
 
 

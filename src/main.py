@@ -6,6 +6,7 @@ import threading
 import tkinter as tk
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -15,6 +16,7 @@ from PIL import Image, ImageDraw
 
 import autostart
 from config import AccountConfig, MonitorConfig
+from cursor_auth_flow import CursorBrowserAuth
 from single_instance import SingleInstanceError, ensure_single_instance, notify_already_running
 from usage_factory import UsageClient, create_usage_client
 from usage_types import AccountUsage, UsageStatus
@@ -70,6 +72,7 @@ class UsageMonitorApp:
 
         self.tray_icon: pystray.Icon | None = None
         self._stop = False
+        self._auth_sessions: dict[str, CursorBrowserAuth] = {}
 
     def fetch_usage(self, instance: AccountInstance) -> AccountUsage:
         usage = instance.client.fetch_usage()
@@ -183,7 +186,48 @@ class UsageMonitorApp:
         )
         self.tray_icon = pystray.Icon("usage_monitor", image, "Usage Monitor", menu)
 
+    def _authenticate_account(self, instance: AccountInstance) -> None:
+        if instance.account.provider != "cursor":
+            return
+        if instance.account.id in self._auth_sessions:
+            return
+
+        widget = instance.widget
+        if widget is None:
+            return
+
+        widget.begin_browser_auth()
+
+        def schedule_ui(callback: Callable[[], None]) -> None:
+            if widget.winfo_exists():
+                widget.after(0, callback)
+
+        def on_success(token: str, _account_label: str) -> None:
+            self.config.save_account_session_token(instance.account.id, token)
+            instance.client = create_usage_client(instance.account)
+            widget.end_browser_auth(success=True)
+            widget.refresh_now()
+
+        def on_failure(message: str) -> None:
+            widget.end_browser_auth(success=False, message=message)
+
+        def on_complete() -> None:
+            self._auth_sessions.pop(instance.account.id, None)
+
+        session = CursorBrowserAuth(
+            schedule_ui=schedule_ui,
+            on_success=on_success,
+            on_failure=on_failure,
+            on_complete=on_complete,
+        )
+        self._auth_sessions[instance.account.id] = session
+        session.start()
+
     def _close_account_widget(self, instance: AccountInstance) -> None:
+        session = self._auth_sessions.pop(instance.account.id, None)
+        if session is not None:
+            session.cancel()
+
         if instance.widget is not None:
             instance.widget.destroy()
             instance.widget = None
@@ -194,6 +238,9 @@ class UsageMonitorApp:
 
     def quit(self) -> None:
         self._stop = True
+        for session in self._auth_sessions.values():
+            session.cancel()
+        self._auth_sessions.clear()
         if self.tray_icon is not None:
             self.tray_icon.stop()
         for instance in self.instances:
@@ -209,6 +256,11 @@ class UsageMonitorApp:
                 account=instance.account,
                 on_refresh=lambda target=instance: self.fetch_usage(target),
                 on_close=lambda target=instance: self._close_account_widget(target),
+                on_authenticate=(
+                    (lambda target=instance: self._authenticate_account(target))
+                    if instance.account.provider == "cursor"
+                    else None
+                ),
             )
             usage = instance.latest_usage
             if not str(usage.username or "").strip():
@@ -226,6 +278,21 @@ class UsageMonitorApp:
 
         self.root.after(1000, self._schedule_refresh)
         self.root.mainloop()
+
+
+def show_fatal_startup_error(message: str) -> None:
+    text = message.strip() or "Unknown startup error."
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        messagebox.showerror("Usage Monitor", text, parent=root)
+        root.destroy()
+    except Exception:
+        print(text, file=sys.stderr)
 
 
 def parse_args() -> argparse.Namespace:
@@ -270,10 +337,10 @@ def main() -> None:
     try:
         app = UsageMonitorApp()
     except FileNotFoundError as exc:
-        print(str(exc))
+        show_fatal_startup_error(str(exc))
         sys.exit(1)
     except RuntimeError as exc:
-        print(str(exc))
+        show_fatal_startup_error(str(exc))
         sys.exit(1)
 
     app.run()
