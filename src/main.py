@@ -15,7 +15,12 @@ if str(ROOT) not in sys.path:
 from PIL import Image, ImageDraw
 
 import autostart
-from config import AccountConfig, MonitorConfig
+from config import (
+    CONFIG_BOOTSTRAP_MESSAGE,
+    AccountConfig,
+    ConfigBootstrapRequired,
+    MonitorConfig,
+)
 from cursor_auth_flow import CursorBrowserAuth
 from github_auth import open_github_device_login
 from github_auth_flow import GitHubBrowserAuth
@@ -73,7 +78,9 @@ class UsageMonitorApp:
             for account in self.config.enabled_accounts()
         ]
         if not self.instances:
-            raise RuntimeError("No enabled accounts with widgets. Check accounts[] in config.json")
+            raise RuntimeError(
+                "No enabled accounts. Set \"enabled\": true on at least one account in config.json"
+            )
 
         self.tray_icon: pystray.Icon | None = None
         self._stop = False
@@ -268,7 +275,7 @@ class UsageMonitorApp:
             widget.update_browser_auth_message(message)
 
         widget.begin_browser_auth(
-            "Se abrira Firefox en Billing. Inicia sesion; el monitor conectara solo."
+            "Firefox will open Billing. Sign in; the monitor will connect automatically."
         )
 
         def on_success(token: str, _account_label: str) -> None:
@@ -302,7 +309,7 @@ class UsageMonitorApp:
             widget.update_browser_auth_message(message)
 
         widget.begin_browser_auth(
-            "Se abrira Firefox en SiliconFlow Billing. Inicia sesion; el monitor conectara solo."
+            "Firefox will open SiliconFlow Billing. Sign in; the monitor will connect automatically."
         )
 
         def on_success(cookie_header: str, subject_id: str, _account_label: str) -> None:
@@ -340,7 +347,7 @@ class UsageMonitorApp:
             widget.update_browser_auth_message(message)
 
         widget.begin_browser_auth(
-            "Se abrira Firefox en claude.ai Usage. Inicia sesion; el monitor conectara solo."
+            "Firefox will open claude.ai Usage. Sign in; the monitor will connect automatically."
         )
 
         def on_success(cookie_header: str, org_id: str, account_label: str) -> None:
@@ -471,6 +478,21 @@ def show_fatal_startup_error(message: str) -> None:
         print(text, file=sys.stderr)
 
 
+def show_bootstrap_notice(message: str) -> None:
+    text = message.strip() or CONFIG_BOOTSTRAP_MESSAGE
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        messagebox.showinfo("Usage Monitor", text, parent=root)
+        root.destroy()
+    except Exception:
+        print(text, file=sys.stderr)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="GitHub Copilot and Cursor usage monitor")
     parser.add_argument("--install-autostart", action="store_true", help="Enable launch at startup")
@@ -487,7 +509,7 @@ def main() -> None:
         try:
             config = MonitorConfig.load()
             config.save_autostart_enabled(True)
-        except FileNotFoundError:
+        except (FileNotFoundError, ConfigBootstrapRequired):
             pass
         return
 
@@ -496,7 +518,7 @@ def main() -> None:
         try:
             config = MonitorConfig.load()
             config.save_autostart_enabled(False)
-        except FileNotFoundError:
+        except (FileNotFoundError, ConfigBootstrapRequired):
             pass
         return
 
@@ -512,6 +534,9 @@ def main() -> None:
 
     try:
         app = UsageMonitorApp()
+    except ConfigBootstrapRequired as exc:
+        show_bootstrap_notice(str(exc))
+        sys.exit(0)
     except FileNotFoundError as exc:
         show_fatal_startup_error(str(exc))
         sys.exit(1)

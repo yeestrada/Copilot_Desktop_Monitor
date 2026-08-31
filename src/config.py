@@ -7,12 +7,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app_paths import ROOT_DIR, bundle_dir, is_frozen
+from app_paths import ROOT_DIR
 
 CONFIG_PATH = ROOT_DIR / "config.json"
-EXAMPLE_CONFIG_PATH = ROOT_DIR / "config.example.json"
-if is_frozen() and not EXAMPLE_CONFIG_PATH.exists():
-    EXAMPLE_CONFIG_PATH = bundle_dir() / "config.example.json"
 
 _ORG_UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -41,6 +38,18 @@ PLAN_LIMITS_CREDITS = {
 
 PROVIDERS = {"github_copilot", "cursor", "openai", "siliconflow", "claude_code"}
 
+CONFIG_BOOTSTRAP_MESSAGE = (
+    "A default config.json has been created.\n\n"
+    "Enable at least one client account to run the application."
+)
+
+
+class ConfigBootstrapRequired(Exception):
+    """Raised after writing a first-run config.json; the app should exit."""
+
+    def __init__(self, message: str = CONFIG_BOOTSTRAP_MESSAGE) -> None:
+        super().__init__(message)
+
 DEFAULT_ACCOUNT: dict[str, Any] = {
     "id": "",
     "label": "",
@@ -63,13 +72,14 @@ DEFAULT_ACCOUNT: dict[str, Any] = {
     "cursor_email": "",
     "included_model_key": "gpt-4",
     "widget": {
-        "enabled": True,
         "always_on_top": True,
         "opacity": 0.92,
         "position": {"x": 50, "y": 50},
     },
 }
 
+# Built into the app binary. First-run config.json is generated from this, not from
+# an external config.example.json next to the executable.
 DEFAULT_CONFIG: dict[str, Any] = {
     "refresh_interval_seconds": 300,
     "thresholds": {
@@ -83,7 +93,63 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "autostart": {
         "enabled": True,
     },
-    "accounts": [],
+    "accounts": [
+        {
+            "id": "copilot-personal",
+            "label": "Copilot Personal",
+            "provider": "github_copilot",
+            "enabled": True,
+            "github_username": "your-username",
+            "token": "ghp_your_classic_or_fine_grained_token",
+            "account_type": "user",
+            "organization": "",
+            "enterprise": "",
+            "plan": "pro",
+            "billing_mode": "auto",
+            "data_source": "auto",
+            "monthly_limit": None,
+            "widget": {"position": {"x": 50, "y": 50}},
+        },
+        {
+            "id": "cursor-main",
+            "label": "Cursor",
+            "provider": "cursor",
+            "enabled": True,
+            "api_key": "",
+            "session_token": "your_cursor_session_token",
+            "cursor_email": "",
+            "cursor_auth_mode": "auto",
+            "api_base_url": "https://api2.cursor.sh",
+            "widget": {"position": {"x": 50, "y": 200}},
+        },
+        {
+            "id": "openai-main",
+            "label": "OpenAI API",
+            "provider": "openai",
+            "enabled": True,
+            "session_token": "",
+            "widget": {"position": {"x": 50, "y": 350}},
+        },
+        {
+            "id": "siliconflow-main",
+            "label": "SiliconFlow",
+            "provider": "siliconflow",
+            "enabled": True,
+            "session_token": "",
+            "organization": "",
+            "widget": {"position": {"x": 50, "y": 500}},
+        },
+        {
+            "id": "claude-code-main",
+            "label": "Claude Code",
+            "provider": "claude_code",
+            "enabled": True,
+            "session_token": "",
+            "organization": "",
+            "plan": "max",
+            "widget": {"position": {"x": 50, "y": 650}},
+        },
+    ],
 }
 
 
@@ -95,7 +161,6 @@ class Thresholds:
 
 @dataclass
 class WidgetSettings:
-    enabled: bool = True
     always_on_top: bool = True
     opacity: float = 0.92
     position_x: int = 50
@@ -259,14 +324,9 @@ class MonitorConfig:
     def load(cls, path: Path | None = None) -> "MonitorConfig":
         config_path = path or CONFIG_PATH
         if not config_path.exists():
-            if EXAMPLE_CONFIG_PATH.exists():
-                data = _read_json(EXAMPLE_CONFIG_PATH)
-            else:
-                data = deepcopy(DEFAULT_CONFIG)
+            data = _prepare_bootstrap_config(DEFAULT_CONFIG)
             _write_json(config_path, data)
-            raise FileNotFoundError(
-                f"Created {config_path.name}. Edit it with your accounts, then run again."
-            )
+            raise ConfigBootstrapRequired()
 
         raw = _read_json(config_path)
         data = _normalize_config(raw)
@@ -331,7 +391,6 @@ class MonitorConfig:
                         ),
                     ),
                     widget=WidgetSettings(
-                        enabled=bool(widget.get("enabled", True)),
                         always_on_top=bool(
                             widget.get("always_on_top", global_widget.get("always_on_top", True))
                         ),
@@ -358,7 +417,7 @@ class MonitorConfig:
         )
 
     def enabled_accounts(self) -> list[AccountConfig]:
-        return [account for account in self.accounts if account.enabled and account.widget.enabled]
+        return [account for account in self.accounts if account.enabled]
 
     def validate(self) -> list[str]:
         errors: list[str] = []
@@ -517,7 +576,6 @@ def _normalize_config(data: dict[str, Any]) -> dict[str, Any]:
             "data_source": data.get("data_source", "auto"),
             "monthly_limit": data.get("monthly_limit"),
             "widget": {
-                "enabled": True,
                 "always_on_top": legacy_widget.get("always_on_top", True),
                 "opacity": legacy_widget.get("opacity", 0.92),
                 "position": {
@@ -538,6 +596,25 @@ def _normalize_config(data: dict[str, Any]) -> dict[str, Any]:
     normalized["autostart"] = data.get("autostart", normalized["autostart"])
     normalized["accounts"] = [account]
     return normalized
+
+
+def _prepare_bootstrap_config(data: dict[str, Any]) -> dict[str, Any]:
+    """Disable all accounts for a first-run config.json (template stays in DEFAULT_CONFIG)."""
+    prepared = deepcopy(data) if isinstance(data, dict) else deepcopy(DEFAULT_CONFIG)
+    prepared = _normalize_config(prepared)
+    accounts = prepared.get("accounts")
+    if not isinstance(accounts, list):
+        prepared["accounts"] = []
+        return prepared
+
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        account["enabled"] = False
+        widget = account.get("widget")
+        if isinstance(widget, dict):
+            widget.pop("enabled", None)
+    return prepared
 
 
 def _read_json(path: Path) -> dict[str, Any]:

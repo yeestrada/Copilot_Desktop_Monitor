@@ -60,8 +60,8 @@ def read_provider_cookies(
                 message = str(exc)
                 if CHROMIUM_DECRYPT_ERROR in message and loader_name in {"chrome", "edge", "brave", "chromium"}:
                     notes.append(
-                        f"{label}: cookies cifradas (Windows). "
-                        "Usa Firefox o pega el token sess- manualmente."
+                        f"{label}: encrypted cookies (Windows). "
+                        "Use Firefox or paste the sess- token manually."
                     )
                 else:
                     notes.append(f"{label}@{domain}: {message}")
@@ -80,7 +80,7 @@ def read_provider_cookies(
                 browser_found = True
 
             if domain_hits:
-                notes.append(f"{label}@{domain}: {domain_hits} cookie(s) de sesion")
+                notes.append(f"{label}@{domain}: {domain_hits} session cookie(s)")
 
         if browser_found and not any(label.startswith("Mozilla Firefox") for label in notes if "cookie(s)" in label):
             pass
@@ -97,7 +97,7 @@ def read_provider_cookies(
         return merged, notes
 
     if not notes:
-        notes.append("No se encontraron cookies de sesion en ningun navegador.")
+        notes.append("No session cookies found in any browser.")
     return {}, notes
 
 

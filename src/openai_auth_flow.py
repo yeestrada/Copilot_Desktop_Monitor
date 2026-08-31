@@ -42,8 +42,8 @@ class OpenAIBrowserAuth:
 
         self._schedule_ui(
             lambda: self._notify_progress(
-                "Se abrio Firefox en Billing. Inicia sesion y espera; "
-                "el monitor detectara la sesion automaticamente."
+                "Firefox opened Billing. Sign in and wait; "
+                "the monitor will detect the session automatically."
             )
         )
         self._stop.clear()
@@ -83,8 +83,8 @@ class OpenAIBrowserAuth:
         if not self._stop.is_set():
             self._schedule_ui(
                 lambda: self._finish_failure(
-                    "Tiempo agotado. Usa Firefox, inicia sesion en Billing y vuelve a intentar. "
-                    "Edge/Chrome en Windows no exponen la sesion OpenAI al monitor."
+                    "Timed out. Use Firefox, sign in to Billing, and try again. "
+                    "Edge/Chrome on Windows do not expose the OpenAI session to the monitor."
                 )
             )
 

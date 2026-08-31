@@ -42,8 +42,8 @@ class SiliconFlowBrowserAuth:
 
         self._schedule_ui(
             lambda: self._notify_progress(
-                "Se abrio Firefox en SiliconFlow Billing. Inicia sesion y espera; "
-                "el monitor detectara la sesion automaticamente."
+                "Firefox opened SiliconFlow Billing. Sign in and wait; "
+                "the monitor will detect the session automatically."
             )
         )
         self._stop.clear()
@@ -85,8 +85,8 @@ class SiliconFlowBrowserAuth:
         if not self._stop.is_set():
             self._schedule_ui(
                 lambda: self._finish_failure(
-                    "Tiempo agotado. Usa Firefox, inicia sesion en SiliconFlow Billing "
-                    "y vuelve a intentar."
+                    "Timed out. Use Firefox, sign in to SiliconFlow Billing, "
+                    "and try again."
                 )
             )
 

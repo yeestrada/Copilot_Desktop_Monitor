@@ -14,10 +14,9 @@ echo Building standalone executable...
 pyinstaller --noconfirm --clean CopilotMonitor.spec
 
 if exist "dist\CopilotMonitor.exe" (
-  copy /Y config.example.json dist\config.example.json >nul
   echo.
   echo Build complete: dist\CopilotMonitor.exe
-  echo Copy config.example.json to config.json in dist\ and edit your credentials.
+  echo First run creates config.json beside the exe with all accounts disabled.
 ) else (
   echo Build failed.
   exit /b 1

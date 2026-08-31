@@ -66,7 +66,6 @@ a = Analysis(
     pathex=[str(src)],
     binaries=[],
     datas=[
-        (str(project_root / "config.example.json"), "."),
         (str(project_root / "assets" / "icons"), "assets/icons"),
     ],
     hiddenimports=hiddenimports,

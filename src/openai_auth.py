@@ -71,14 +71,14 @@ def read_session_token_from_browsers() -> tuple[str | None, list[str]]:
     notes: list[str] = []
     profiles = _firefox_profiles()
     if not profiles:
-        notes.append("Firefox no encontrado. Instala Firefox e inicia sesion en Billing.")
+        notes.append("Firefox not found. Install Firefox and sign in to Billing.")
     else:
-        notes.append(f"Firefox: revisando {len(profiles)} perfil(es).")
+        notes.append(f"Firefox: checking {len(profiles)} profile(s).")
 
     for profile in profiles:
         sess_cookie = _read_firefox_openai_sess_cookie(profile)
         if sess_cookie:
-            notes.append("Firefox: sess- encontrado en cookies.")
+            notes.append("Firefox: sess- found in cookies.")
             return sess_cookie, notes
 
         onboard = _read_firefox_onboard_payload(profile)
@@ -87,7 +87,7 @@ def read_session_token_from_browsers() -> tuple[str | None, list[str]]:
 
         session_token = str(onboard.get("sessionToken") or "").strip()
         if session_token.startswith("sess-"):
-            notes.append("Firefox: sessionToken sess- en localStorage.")
+            notes.append("Firefox: sessionToken sess- in localStorage.")
             return session_token, notes
 
         access_token = str(onboard.get("accessToken") or onboard.get("access_token") or "").strip()
@@ -96,14 +96,14 @@ def read_session_token_from_browsers() -> tuple[str | None, list[str]]:
         if not access_token:
             continue
 
-        notes.append("Firefox: accessToken encontrado en localStorage.")
+        notes.append("Firefox: accessToken found in localStorage.")
         if access_token in _exchange_failed_tokens:
-            notes.append("Firefox: mismo JWT ya rechazado; esperando sesion nueva.")
+            notes.append("Firefox: same JWT already rejected; waiting for a new session.")
             continue
 
         try:
             sess_key = _exchange_sess_key_cached(access_token)
-            notes.append("Firefox: sess- obtenido automaticamente.")
+            notes.append("Firefox: sess- obtained automatically.")
             return sess_key, notes
         except OpenAIAuthError as exc:
             notes.append(f"Firefox localStorage: {exc}")
@@ -116,12 +116,12 @@ def read_session_token_from_browsers() -> tuple[str | None, list[str]]:
 
     if cookies:
         notes.append(
-            "Sesion web detectada, esperando token de Billing en Firefox. "
-            "Quedate en la pagina de Billing hasta que el monitor conecte."
+            "Web session detected; waiting for Billing token in Firefox. "
+            "Stay on the Billing page until the monitor connects."
         )
     else:
         notes.append(
-            "Inicia sesion en Firefox (Billing). El monitor detectara la sesion solo."
+            "Sign in with Firefox (Billing). The monitor will detect the session automatically."
         )
     return None, notes
 
@@ -149,7 +149,7 @@ def validate_session_token(token: str, timeout: float = 20.0) -> str:
     normalized = normalize_session_token(token)
     sess_key = extract_sess_key(normalized) or normalized
     if not sess_key.startswith("sess-"):
-        raise OpenAIAuthError("El token de sesion OpenAI debe empezar por sess-.")
+        raise OpenAIAuthError("OpenAI session token must start with sess-.")
 
     _probe_credit_grants(sess_key, timeout=timeout)
     return "OpenAI account"
@@ -407,7 +407,7 @@ def _exchange_sess_key_cached(access_token: str) -> str:
     if cached:
         return cached
     if access_token in _exchange_failed_tokens:
-        raise OpenAIAuthError("Token ya rechazado; esperando sesion nueva en Firefox.")
+        raise OpenAIAuthError("Token already rejected; waiting for a new session in Firefox.")
 
     try:
         sess_key = _exchange_sess_key(access_token)
@@ -442,11 +442,11 @@ def _exchange_sess_key(access_token: str) -> str:
 
     payload = response.json()
     if not isinstance(payload, dict):
-        raise OpenAIAuthError("OpenAI devolvio una respuesta invalida al iniciar sesion.")
+        raise OpenAIAuthError("OpenAI returned an invalid response while signing in.")
 
     sess_key = _extract_sess_key(payload)
     if not sess_key:
-        raise OpenAIAuthError("OpenAI no devolvio sess- en onboarding/login.")
+        raise OpenAIAuthError("OpenAI did not return a sess- token from onboarding/login.")
     return sess_key
 
 
@@ -481,7 +481,7 @@ def _probe_credit_grants(token: str, *, timeout: float) -> dict[str, Any]:
             errors.append(str(exc))
 
     detail = errors[-1] if errors else "unknown error"
-    raise OpenAIAuthError(f"Sesion OpenAI invalida o expirada. ({detail})")
+    raise OpenAIAuthError(f"OpenAI session invalid or expired. ({detail})")
 
 
 def _get_credit_grants(

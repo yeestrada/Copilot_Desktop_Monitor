@@ -46,18 +46,18 @@ def read_session_from_browsers() -> tuple[str | None, str | None, list[str]]:
         cookie_header, cookie_notes = _read_cookies_via_browser_cookie3()
         notes.extend(cookie_notes)
     else:
-        notes.append("Firefox: cookies claude.ai leidas.")
+        notes.append("Firefox: claude.ai cookies read.")
 
     if not cookie_header or f"{SESSION_COOKIE_NAME}=" not in cookie_header:
         notes.append(
-            "Inicia sesion en Firefox (claude.ai Usage). "
-            "El monitor detectara la sesion automaticamente."
+            "Sign in with Firefox (claude.ai Usage). "
+            "The monitor will detect the session automatically."
         )
         return None, None, notes
 
     cached_org = _validated_session_cache.get(cookie_header)
     if cached_org:
-        notes.append("Claude: sesion en cache.")
+        notes.append("Claude: cached session.")
         return cookie_header, cached_org, notes
 
     try:
@@ -66,7 +66,7 @@ def read_session_from_browsers() -> tuple[str | None, str | None, list[str]]:
         notes.append(str(exc))
         return None, None, notes
 
-    notes.append("Claude: organization UUID obtenido automaticamente.")
+    notes.append("Claude: organization UUID obtained automatically.")
     return cookie_header, org_id, notes
 
 
@@ -74,9 +74,9 @@ def validate_session(cookie_header: str, org_id: str, timeout: float = 20.0) -> 
     cookie = _normalize_cookie_header(cookie_header)
     organization = org_id.strip()
     if not cookie or f"{SESSION_COOKIE_NAME}=" not in cookie:
-        raise ClaudeAuthError("Falta cookie sessionKey de claude.ai.")
+        raise ClaudeAuthError("Missing claude.ai sessionKey cookie.")
     if not _is_org_uuid(organization):
-        raise ClaudeAuthError("organization debe ser un UUID de claude.ai.")
+        raise ClaudeAuthError("organization must be a claude.ai UUID.")
 
     response = requests.get(
         WEB_USAGE_URL.format(org_id=organization),
@@ -85,7 +85,7 @@ def validate_session(cookie_header: str, org_id: str, timeout: float = 20.0) -> 
     )
     if response.status_code in {401, 403}:
         raise ClaudeAuthError(
-            f"Sesion claude.ai invalida o expirada ({response.status_code})."
+            f"claude.ai session invalid or expired ({response.status_code})."
         )
     if not response.ok:
         raise ClaudeAuthError(
@@ -94,7 +94,7 @@ def validate_session(cookie_header: str, org_id: str, timeout: float = 20.0) -> 
 
     payload = response.json()
     if not isinstance(payload, dict):
-        raise ClaudeAuthError("Respuesta de usage invalida.")
+        raise ClaudeAuthError("Invalid usage response.")
 
     _validated_session_cache[cookie] = organization
 
@@ -123,23 +123,23 @@ def _resolve_org_id(cookie_header: str) -> str:
     )
     if response.status_code in {401, 403}:
         raise ClaudeAuthError(
-            "Sesion no autenticada en claude.ai. Completa el login en Firefox."
+            "Not signed in to claude.ai. Complete login in Firefox."
         )
     if not response.ok:
         raise ClaudeAuthError(
-            f"No se pudieron listar organizations ({response.status_code})."
+            f"Could not list organizations ({response.status_code})."
         )
 
     payload = response.json()
     orgs = _as_org_list(payload)
     if not orgs:
-        raise ClaudeAuthError("La cuenta no devolvio organizations.")
+        raise ClaudeAuthError("Account returned no organizations.")
 
     for org in orgs:
         candidate = str(org.get("uuid") or org.get("id") or "").strip()
         if _is_org_uuid(candidate):
             return candidate
-    raise ClaudeAuthError("No se encontro un organization UUID valido.")
+    raise ClaudeAuthError("No valid organization UUID found.")
 
 
 def _as_org_list(payload: Any) -> list[dict[str, Any]]:
@@ -218,7 +218,7 @@ def _read_cookies_via_browser_cookie3() -> tuple[str | None, list[str]]:
     try:
         import browser_cookie3
     except ImportError:
-        notes.append("browser-cookie3 no instalado.")
+        notes.append("browser-cookie3 not installed.")
         return None, notes
 
     loaders = (
@@ -249,9 +249,9 @@ def _read_cookies_via_browser_cookie3() -> tuple[str | None, list[str]]:
             pairs.append(f"{name}={value}")
 
         if has_session and pairs:
-            notes.append(f"{label}: cookie sessionKey encontrada.")
+            notes.append(f"{label}: sessionKey cookie found.")
             return "; ".join(pairs), notes
-        notes.append(f"{label}: sin cookie sessionKey.")
+        notes.append(f"{label}: no sessionKey cookie.")
 
     return None, notes
 

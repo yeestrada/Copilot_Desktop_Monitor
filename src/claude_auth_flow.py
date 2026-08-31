@@ -42,8 +42,8 @@ class ClaudeBrowserAuth:
 
         self._schedule_ui(
             lambda: self._notify_progress(
-                "Se abrio Firefox en claude.ai Usage. Inicia sesion y espera; "
-                "el monitor detectara la sesion automaticamente."
+                "Firefox opened claude.ai Usage. Sign in and wait; "
+                "the monitor will detect the session automatically."
             )
         )
         self._stop.clear()
@@ -85,8 +85,8 @@ class ClaudeBrowserAuth:
         if not self._stop.is_set():
             self._schedule_ui(
                 lambda: self._finish_failure(
-                    "Tiempo agotado. Usa Firefox, inicia sesion en claude.ai "
-                    "(Settings → Usage) y vuelve a intentar."
+                    "Timed out. Use Firefox, sign in to claude.ai "
+                    "(Settings → Usage), and try again."
                 )
             )
 

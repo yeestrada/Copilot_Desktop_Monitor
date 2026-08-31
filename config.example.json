@@ -27,7 +27,6 @@
       "data_source": "auto",
       "monthly_limit": null,
       "widget": {
-        "enabled": true,
         "position": {
           "x": 50,
           "y": 50
@@ -45,7 +44,6 @@
       "cursor_auth_mode": "auto",
       "api_base_url": "https://api2.cursor.sh",
       "widget": {
-        "enabled": true,
         "position": {
           "x": 50,
           "y": 200
@@ -59,7 +57,6 @@
       "enabled": true,
       "session_token": "",
       "widget": {
-        "enabled": true,
         "position": {
           "x": 50,
           "y": 350
@@ -74,7 +71,6 @@
       "session_token": "",
       "organization": "",
       "widget": {
-        "enabled": true,
         "position": {
           "x": 50,
           "y": 500
@@ -90,7 +86,6 @@
       "organization": "",
       "plan": "max",
       "widget": {
-        "enabled": true,
         "position": {
           "x": 50,
           "y": 650

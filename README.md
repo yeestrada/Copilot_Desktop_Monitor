@@ -144,9 +144,8 @@ Only one app instance runs at a time. If nothing appears, check the system tray 
 | `id` | Yes | Unique account identifier (used to save widget position) |
 | `label` | Yes | Widget title (e.g. `Copilot Personal`, `Cursor`) |
 | `provider` | Yes | `github_copilot`, `cursor`, `openai`, `siliconflow`, or `claude_code` |
-| `enabled` | No | `false` keeps the account in config but hides its widget |
+| `enabled` | No | `false` keeps the account in config but does not show its widget |
 | `thresholds` | No | Per-account override of global warning/critical % |
-| `widget.enabled` | No | `false` hides only this account's widget |
 | `widget.always_on_top` | No | Override global always-on-top |
 | `widget.opacity` | No | Override global opacity |
 | `widget.position.x` / `y` | No | Initial screen position (updated when you drag the widget) |

@@ -23,10 +23,9 @@ echo "Building standalone executable..."
 "$ROOT/.venv/bin/pyinstaller" --noconfirm --clean CopilotMonitor.spec
 
 if [[ -x "$ROOT/dist/CopilotMonitor" ]]; then
-  cp -f config.example.json dist/config.example.json
   echo
   echo "Build complete: dist/CopilotMonitor"
-  echo "Copy config.example.json to config.json in dist/ and edit your credentials."
+  echo "On first run the app creates config.json next to the binary (all accounts disabled)."
 else
   echo "Build failed."
   exit 1

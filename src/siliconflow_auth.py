@@ -45,19 +45,19 @@ def read_session_from_browsers() -> tuple[str | None, str | None, list[str]]:
         cookie_header, cookie_notes = _read_cookies_via_browser_cookie3()
         notes.extend(cookie_notes)
     else:
-        notes.append("Firefox: cookies SiliconFlow leidas.")
+        notes.append("Firefox: SiliconFlow cookies read.")
 
     if not cookie_header or SESSION_COOKIE_PREFIX not in cookie_header:
         notes.append(
-            "Inicia sesion en Firefox (SiliconFlow Billing). "
-            "El monitor detectara la sesion automaticamente."
+            "Sign in with Firefox (SiliconFlow Billing). "
+            "The monitor will detect the session automatically."
         )
         return None, None, notes
 
     cache_key = cookie_header
     cached_subject = _validated_session_cache.get(cache_key)
     if cached_subject:
-        notes.append("SiliconFlow: sesion en cache.")
+        notes.append("SiliconFlow: cached session.")
         return cookie_header, cached_subject, notes
 
     try:
@@ -66,7 +66,7 @@ def read_session_from_browsers() -> tuple[str | None, str | None, list[str]]:
         notes.append(str(exc))
         return None, None, notes
 
-    notes.append("SiliconFlow: subject-id obtenido desde Billing.")
+    notes.append("SiliconFlow: subject-id obtained from Billing.")
     return cookie_header, subject_id, notes
 
 
@@ -74,11 +74,11 @@ def validate_session(cookie_header: str, subject_id: str, timeout: float = 20.0)
     cookie = _normalize_cookie_header(cookie_header)
     subject = subject_id.strip()
     if not cookie:
-        raise SiliconFlowAuthError("Cookie de sesion vacia.")
+        raise SiliconFlowAuthError("Session cookie is empty.")
     if not subject:
-        raise SiliconFlowAuthError("Falta x-subject-id.")
+        raise SiliconFlowAuthError("Missing x-subject-id.")
     if SESSION_COOKIE_PREFIX not in cookie:
-        raise SiliconFlowAuthError("No se encontro cookie __SF_auth.session-token.")
+        raise SiliconFlowAuthError("Cookie __SF_auth.session-token not found.")
 
     response = requests.get(
         WALLET_PEEK_URL,
@@ -95,7 +95,7 @@ def validate_session(cookie_header: str, subject_id: str, timeout: float = 20.0)
     )
     if response.status_code in {401, 403}:
         raise SiliconFlowAuthError(
-            f"Sesion SiliconFlow invalida o expirada ({response.status_code})."
+            f"SiliconFlow session invalid or expired ({response.status_code})."
         )
     if not response.ok:
         detail = _safe_json(response).get("message") or response.text[:200]
@@ -103,7 +103,7 @@ def validate_session(cookie_header: str, subject_id: str, timeout: float = 20.0)
 
     payload = response.json()
     if not isinstance(payload, dict):
-        raise SiliconFlowAuthError("Respuesta invalida de wallet peek.")
+        raise SiliconFlowAuthError("Invalid wallet peek response.")
     code = payload.get("code")
     if code is not None and int(code) != 20000:
         message = str(payload.get("message") or "SiliconFlow wallet peek failed")
@@ -111,7 +111,7 @@ def validate_session(cookie_header: str, subject_id: str, timeout: float = 20.0)
 
     data = payload.get("data")
     if not isinstance(data, dict) or not isinstance(data.get("financialInfo"), dict):
-        raise SiliconFlowAuthError("Wallet peek sin financialInfo.")
+        raise SiliconFlowAuthError("Wallet peek missing financialInfo.")
 
     _validated_session_cache[cookie] = subject
     return subject
@@ -128,16 +128,16 @@ def _resolve_subject_id(cookie_header: str) -> str:
         timeout=20,
     )
     if response.status_code in {401, 403}:
-        raise SiliconFlowAuthError("Sesion no autenticada en SiliconFlow Billing.")
+        raise SiliconFlowAuthError("Not signed in to SiliconFlow Billing.")
     if not response.ok:
         raise SiliconFlowAuthError(
-            f"No se pudo abrir Billing ({response.status_code})."
+            f"Could not open Billing ({response.status_code})."
         )
 
     match = SUBJECT_ID_RE.search(response.text)
     if not match:
         raise SiliconFlowAuthError(
-            "No se encontro SF_SUBJECT_ID. Abre Billing estando logueado en Firefox."
+            "SF_SUBJECT_ID not found. Open Billing while signed in with Firefox."
         )
     return match.group(1)
 
@@ -197,7 +197,7 @@ def _read_cookies_via_browser_cookie3() -> tuple[str | None, list[str]]:
     try:
         import browser_cookie3
     except ImportError:
-        notes.append("browser-cookie3 no instalado.")
+        notes.append("browser-cookie3 not installed.")
         return None, notes
 
     loaders = (
@@ -228,9 +228,9 @@ def _read_cookies_via_browser_cookie3() -> tuple[str | None, list[str]]:
             pairs.append(f"{name}={value}")
 
         if has_session and pairs:
-            notes.append(f"{label}: cookie de sesion SiliconFlow encontrada.")
+            notes.append(f"{label}: SiliconFlow session cookie found.")
             return "; ".join(pairs), notes
-        notes.append(f"{label}: sin cookie __SF_auth.session-token.")
+        notes.append(f"{label}: no __SF_auth.session-token cookie.")
 
     return None, notes
 
