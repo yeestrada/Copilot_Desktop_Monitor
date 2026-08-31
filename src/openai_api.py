@@ -41,12 +41,23 @@ class OpenAIClient:
         now = datetime.now(timezone.utc)
         period_label = _next_month_reset_label(now)
 
+        if not self.account.session_token.strip() and not self.account.api_key.strip():
+            return self._error_usage(
+                period_label,
+                "Sign in to OpenAI to load your credit balance.",
+                needs_auth=True,
+            )
+
         if self.account.session_token.strip():
             try:
                 return self._fetch_credit_grants_usage(period_label)
             except OpenAIApiError as exc:
                 if not self.account.api_key.strip():
-                    return self._error_usage(period_label, str(exc))
+                    return self._error_usage(
+                        period_label,
+                        str(exc),
+                        needs_auth=_openai_auth_needed(str(exc)),
+                    )
                 # Fall through to Admin costs when session fails but api_key exists.
 
         if self.account.api_key.strip():
@@ -57,7 +68,8 @@ class OpenAIClient:
 
         return self._error_usage(
             period_label,
-            "missing session_token (browser session) or Admin API key for OpenAI",
+            "Sign in to OpenAI to load your credit balance.",
+            needs_auth=True,
         )
 
     def _fetch_credit_grants_usage(self, period_label: str) -> AccountUsage:
@@ -286,7 +298,13 @@ class OpenAIClient:
             raise OpenAIApiError("unexpected costs response")
         return payload
 
-    def _error_usage(self, period_label: str, message: str) -> AccountUsage:
+    def _error_usage(
+        self,
+        period_label: str,
+        message: str,
+        *,
+        needs_auth: bool = False,
+    ) -> AccountUsage:
         return AccountUsage(
             used=0.0,
             limit=None,
@@ -302,7 +320,19 @@ class OpenAIClient:
             organization=self.account.organization,
             provider=self.account.provider,
             label=self.account.label,
+            needs_auth=needs_auth,
         )
+
+
+def _openai_auth_needed(message: str) -> bool:
+    lowered = message.lower()
+    return (
+        "401" in lowered
+        or "403" in lowered
+        or "invalid or expired session_token" in lowered
+        or "sign in to openai" in lowered
+        or "missing session_token" in lowered
+    )
 
 
 def _month_start_unix(now: datetime) -> int:

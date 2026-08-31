@@ -8,8 +8,8 @@ from typing import Callable
 
 from config import AccountConfig, MonitorConfig
 from provider_icons import get_provider_icon
-from usage_types import AccountUsage, UsageStatus
 from platform_utils import apply_window_attributes, format_period_date, ui_font
+from usage_types import AccountUsage, UsageStatus
 
 STATUS_COLORS = {
     UsageStatus.OK: ("#0d1117", "#238636", "#3fb950"),
@@ -435,6 +435,10 @@ class AccountWidget(tk.Toplevel):
             return False
         if self.account.provider == "github_copilot":
             return not self.account.token.strip()
+        if self.account.provider == "openai":
+            if self.account.api_key.strip():
+                return False
+            return not self.account.session_token.strip()
         if self.account.provider != "cursor":
             return False
         if self.account.cursor_auth_mode == "admin_api":
@@ -446,6 +450,8 @@ class AccountWidget(tk.Toplevel):
             return
         if self.account.provider == "github_copilot":
             message = "Sign in to GitHub to load your Copilot usage."
+        elif self.account.provider == "openai":
+            message = "Sign in to OpenAI to load your credit balance."
         else:
             message = "Sign in to Cursor to load your usage quota."
         self._present_auth_required(message)
@@ -463,7 +469,9 @@ class AccountWidget(tk.Toplevel):
         self._show_auth_prompt(show_login)
 
     def _handle_authenticate(self) -> None:
-        if self._auth_in_progress or self.on_authenticate is None:
+        if self._auth_in_progress:
+            return
+        if self.on_authenticate is None:
             return
         self.on_authenticate()
 
@@ -479,6 +487,15 @@ class AccountWidget(tk.Toplevel):
                 message or "Complete sign-in in your browser. This widget will connect automatically.",
                 ERROR_TEXT_WIDTH,
             )
+        self._sync_geometry()
+
+    def update_browser_auth_message(self, message: str) -> None:
+        self._set_truncated_label(
+            self.error_label,
+            self._error_tip,
+            message,
+            ERROR_TEXT_WIDTH,
+        )
         self._sync_geometry()
 
     def show_github_device_code(self, user_code: str) -> None:
@@ -651,6 +668,7 @@ class AccountWidget(tk.Toplevel):
                             and self.account.cursor_auth_mode != "admin_api"
                         )
                         or self.account.provider == "github_copilot"
+                        or self.account.provider == "openai"
                     )
                 )
                 usage = AccountUsage(

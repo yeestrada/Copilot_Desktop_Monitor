@@ -205,10 +205,8 @@ class AccountConfig:
                 errors.append(f"{prefix}: provide api_key and/or session_token for Cursor")
 
         if self.provider == "openai":
-            if not self.session_token:
-                errors.append(
-                    f"{prefix}: missing session_token (browser JWT Bearer from platform.openai.com)"
-                )
+            if not self.session_token and not self.api_key:
+                pass  # Allow in-app sign-in from the widget.
 
         if self.provider == "siliconflow":
             if not self.session_token:

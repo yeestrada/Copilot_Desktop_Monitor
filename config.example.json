@@ -57,7 +57,7 @@
       "label": "OpenAI API",
       "provider": "openai",
       "enabled": true,
-      "session_token": "sess-your_openai_dashboard_session_token",
+      "session_token": "",
       "widget": {
         "enabled": true,
         "position": {
