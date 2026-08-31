@@ -39,10 +39,20 @@ class SiliconFlowClient:
 
     def fetch_usage(self) -> AccountUsage:
         period_label = datetime.now(timezone.utc).strftime("%m/%Y")
+        if not self.account.session_token.strip() or not self.account.organization.strip():
+            return self._error_usage(
+                period_label,
+                "Sign in to SiliconFlow to load your wallet balance.",
+                needs_auth=True,
+            )
         try:
             payload = self._request_wallet_peek()
         except SiliconFlowApiError as exc:
-            return self._error_usage(period_label, str(exc))
+            return self._error_usage(
+                period_label,
+                str(exc),
+                needs_auth=_siliconflow_auth_needed(str(exc)),
+            )
 
         data = payload.get("data")
         if not isinstance(data, dict):
@@ -157,7 +167,13 @@ class SiliconFlowClient:
 
         return payload
 
-    def _error_usage(self, period_label: str, message: str) -> AccountUsage:
+    def _error_usage(
+        self,
+        period_label: str,
+        message: str,
+        *,
+        needs_auth: bool = False,
+    ) -> AccountUsage:
         return AccountUsage(
             used=0.0,
             limit=None,
@@ -173,7 +189,23 @@ class SiliconFlowClient:
             organization=self.account.organization,
             provider=self.account.provider,
             label=self.account.label,
+            needs_auth=needs_auth,
         )
+
+
+def _siliconflow_auth_needed(message: str) -> bool:
+    lowered = message.lower()
+    return any(
+        token in lowered
+        for token in (
+            "missing session_token",
+            "missing organization",
+            "invalid or expired",
+            "401",
+            "403",
+            "sign in",
+        )
+    )
 
 
 def _scaled_amount(value: Any) -> float | None:

@@ -439,6 +439,8 @@ class AccountWidget(tk.Toplevel):
             if self.account.api_key.strip():
                 return False
             return not self.account.session_token.strip()
+        if self.account.provider == "siliconflow":
+            return not self.account.session_token.strip() or not self.account.organization.strip()
         if self.account.provider != "cursor":
             return False
         if self.account.cursor_auth_mode == "admin_api":
@@ -452,6 +454,8 @@ class AccountWidget(tk.Toplevel):
             message = "Sign in to GitHub to load your Copilot usage."
         elif self.account.provider == "openai":
             message = "Sign in to OpenAI to load your credit balance."
+        elif self.account.provider == "siliconflow":
+            message = "Sign in to SiliconFlow to load your wallet balance."
         else:
             message = "Sign in to Cursor to load your usage quota."
         self._present_auth_required(message)
@@ -669,6 +673,7 @@ class AccountWidget(tk.Toplevel):
                         )
                         or self.account.provider == "github_copilot"
                         or self.account.provider == "openai"
+                        or self.account.provider == "siliconflow"
                     )
                 )
                 usage = AccountUsage(

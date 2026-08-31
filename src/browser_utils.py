@@ -8,6 +8,7 @@ import webbrowser
 from pathlib import Path
 
 OPENAI_BILLING_URL = "https://platform.openai.com/settings/organization/billing/overview"
+SILICONFLOW_BILLING_URL = "https://cloud.siliconflow.com/me/expensebill"
 
 
 def open_url(url: str) -> None:
@@ -69,3 +70,9 @@ def open_openai_login_url() -> None:
     """Open OpenAI billing in Firefox when available for readable cookies on Windows."""
     if not open_url_in_firefox(OPENAI_BILLING_URL):
         open_url(OPENAI_BILLING_URL)
+
+
+def open_siliconflow_login_url() -> None:
+    """Open SiliconFlow billing in Firefox when available for readable cookies on Windows."""
+    if not open_url_in_firefox(SILICONFLOW_BILLING_URL):
+        open_url(SILICONFLOW_BILLING_URL)

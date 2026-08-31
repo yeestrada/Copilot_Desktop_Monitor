@@ -37,6 +37,8 @@ hiddenimports = [
     "snappy",
     "cramjam",
     "siliconflow_api",
+    "siliconflow_auth",
+    "siliconflow_auth_flow",
     "usage_factory",
     "usage_types",
     "widget",

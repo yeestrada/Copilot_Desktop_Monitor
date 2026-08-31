@@ -209,12 +209,14 @@ class AccountConfig:
                 pass  # Allow in-app sign-in from the widget.
 
         if self.provider == "siliconflow":
-            if not self.session_token:
+            if not self.session_token and not self.organization:
+                pass  # Allow in-app sign-in from the widget.
+            elif not self.session_token:
                 errors.append(
                     f"{prefix}: missing session_token (Cookie header from "
                     "cloud.siliconflow.com wallet peek)"
                 )
-            if not self.organization:
+            elif not self.organization:
                 errors.append(
                     f"{prefix}: missing organization (x-subject-id from wallet peek headers)"
                 )
@@ -399,6 +401,26 @@ class MonitorConfig:
         for account in self.accounts:
             if account.id == account_id:
                 account.session_token = session_token.strip()
+                break
+
+    def save_account_siliconflow_session(
+        self,
+        account_id: str,
+        *,
+        session_token: str,
+        organization: str,
+    ) -> None:
+        data = _read_json(CONFIG_PATH)
+        for account in data.get("accounts", []):
+            if str(account.get("id")) == account_id:
+                account["session_token"] = session_token
+                account["organization"] = organization
+                break
+        _write_json(CONFIG_PATH, data)
+        for account in self.accounts:
+            if account.id == account_id:
+                account.session_token = session_token.strip()
+                account.organization = organization.strip()
                 break
 
     def save_autostart_enabled(self, enabled: bool) -> None:

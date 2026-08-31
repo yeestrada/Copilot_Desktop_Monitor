@@ -71,8 +71,8 @@
       "label": "SiliconFlow",
       "provider": "siliconflow",
       "enabled": true,
-      "session_token": "your_siliconflow_browser_cookie_header",
-      "organization": "your_x_subject_id",
+      "session_token": "",
+      "organization": "",
       "widget": {
         "enabled": true,
         "position": {
