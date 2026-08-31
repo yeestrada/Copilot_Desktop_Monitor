@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import webbrowser
+from browser_utils import open_url
 from urllib.parse import unquote
 
 import requests
@@ -27,7 +27,7 @@ def normalize_session_token(token: str) -> str:
 
 
 def open_cursor_login() -> None:
-    webbrowser.open(CURSOR_LOGIN_URL, new=1)
+    open_url(CURSOR_LOGIN_URL)
 
 
 def read_session_token_from_browsers() -> tuple[str | None, list[str]]:

@@ -174,10 +174,6 @@ class AccountConfig:
             errors.append(f"{prefix}: provider must be one of {', '.join(sorted(PROVIDERS))}")
 
         if self.provider == "github_copilot":
-            if not self.github_username:
-                errors.append(f"{prefix}: missing github_username")
-            if not self.token:
-                errors.append(f"{prefix}: missing token")
             if self.account_type not in {"user", "organization", "enterprise"}:
                 errors.append(f"{prefix}: account_type must be user, organization, or enterprise")
             if self.account_type == "organization" and not self.organization:
@@ -372,6 +368,27 @@ class MonitorConfig:
         for account in self.accounts:
             if account.id == account_id:
                 account.widget.collapsed = collapsed
+                break
+
+    def save_account_github_token(
+        self,
+        account_id: str,
+        token: str,
+        github_username: str | None = None,
+    ) -> None:
+        data = _read_json(CONFIG_PATH)
+        for account in data.get("accounts", []):
+            if str(account.get("id")) == account_id:
+                account["token"] = token
+                if github_username:
+                    account["github_username"] = github_username
+                break
+        _write_json(CONFIG_PATH, data)
+        for account in self.accounts:
+            if account.id == account_id:
+                account.token = token.strip()
+                if github_username:
+                    account.github_username = github_username.strip()
                 break
 
     def save_account_session_token(self, account_id: str, session_token: str) -> None:

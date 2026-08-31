@@ -38,6 +38,14 @@ class GitHubCopilotClient:
     def fetch_usage(self) -> AccountUsage:
         now = datetime.now(timezone.utc)
         period_label = f"{now.month:02d}/{now.year}"
+
+        if not self.account.token.strip():
+            return self._error_usage(
+                period_label,
+                "Sign in to GitHub to load your Copilot usage.",
+                needs_auth=True,
+            )
+
         errors: list[str] = []
 
         if self.account.data_source in {"auto", "copilot_internal"}:
@@ -46,7 +54,11 @@ class GitHubCopilotClient:
             except GitHubApiError as exc:
                 errors.append(f"copilot_internal: {exc}")
                 if self.account.data_source == "copilot_internal":
-                    return self._error_usage(period_label, str(exc))
+                    return self._error_usage(
+                        period_label,
+                        str(exc),
+                        needs_auth=_github_auth_needed(str(exc)),
+                    )
 
         if self.account.data_source in {"auto", "billing_api"}:
             attempts = self._usage_requests(now.year, now.month)
@@ -58,7 +70,11 @@ class GitHubCopilotClient:
                     errors.append(f"{attempt.label}: {exc}")
 
         message = self._compose_error_message(errors)
-        return self._error_usage(period_label, message)
+        return self._error_usage(
+            period_label,
+            message,
+            needs_auth=_github_auth_needed(message),
+        )
 
     def _fetch_internal_usage(self, period_label: str) -> AccountUsage:
         response = self.session.get(
@@ -245,7 +261,13 @@ class GitHubCopilotClient:
             label=self.account.label,
         )
 
-    def _error_usage(self, period_label: str, message: str) -> AccountUsage:
+    def _error_usage(
+        self,
+        period_label: str,
+        message: str,
+        *,
+        needs_auth: bool = False,
+    ) -> AccountUsage:
         return AccountUsage(
             used=0,
             limit=None,
@@ -254,12 +276,23 @@ class GitHubCopilotClient:
             status=UsageStatus.ERROR,
             percent_used=None,
             remaining=None,
-            username=self.account.github_username,
+            username=self.account.display_username,
             period_label=period_label,
             message=message,
             provider="github_copilot",
             label=self.account.label,
+            needs_auth=needs_auth,
         )
+
+
+def _github_auth_needed(message: str) -> bool:
+    lowered = message.lower()
+    return (
+        "401" in lowered
+        or "invalid or expired token" in lowered
+        or "sign in to github" in lowered
+        or "missing token" in lowered
+    )
 
 
 class GitHubApiError(Exception):

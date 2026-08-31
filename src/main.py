@@ -17,6 +17,8 @@ from PIL import Image, ImageDraw
 import autostart
 from config import AccountConfig, MonitorConfig
 from cursor_auth_flow import CursorBrowserAuth
+from github_auth import open_github_device_login
+from github_auth_flow import GitHubBrowserAuth
 from single_instance import SingleInstanceError, ensure_single_instance, notify_already_running
 from usage_factory import UsageClient, create_usage_client
 from usage_types import AccountUsage, UsageStatus
@@ -72,7 +74,7 @@ class UsageMonitorApp:
 
         self.tray_icon: pystray.Icon | None = None
         self._stop = False
-        self._auth_sessions: dict[str, CursorBrowserAuth] = {}
+        self._auth_sessions: dict[str, CursorBrowserAuth | GitHubBrowserAuth] = {}
 
     def fetch_usage(self, instance: AccountInstance) -> AccountUsage:
         usage = instance.client.fetch_usage()
@@ -187,8 +189,6 @@ class UsageMonitorApp:
         self.tray_icon = pystray.Icon("usage_monitor", image, "Usage Monitor", menu)
 
     def _authenticate_account(self, instance: AccountInstance) -> None:
-        if instance.account.provider != "cursor":
-            return
         if instance.account.id in self._auth_sessions:
             return
 
@@ -196,6 +196,61 @@ class UsageMonitorApp:
         if widget is None:
             return
 
+        if instance.account.provider == "github_copilot":
+            self._authenticate_github(instance, widget)
+        elif instance.account.provider == "cursor":
+            self._authenticate_cursor(instance, widget)
+
+    def _authenticate_github(self, instance: AccountInstance, widget: AccountWidget) -> None:
+        widget.begin_browser_auth("Opening GitHub sign-in in your browser...")
+
+        def schedule_ui(callback: Callable[[], None]) -> None:
+            if widget.winfo_exists():
+                widget.after(0, callback)
+
+        def on_waiting(user_code: str, verification_uri: str) -> None:
+            widget.show_github_device_code(user_code)
+
+            def open_browser() -> None:
+                if not widget.winfo_exists():
+                    return
+                try:
+                    open_github_device_login(user_code, verification_uri)
+                except Exception as exc:  # noqa: BLE001
+                    widget.end_browser_auth(
+                        success=False,
+                        message=f"Could not open browser: {exc}",
+                    )
+
+            widget.after(1200, open_browser)
+
+        def on_success(token: str, github_username: str) -> None:
+            self.config.save_account_github_token(
+                instance.account.id,
+                token,
+                github_username or None,
+            )
+            instance.client = create_usage_client(instance.account)
+            widget.end_browser_auth(success=True)
+            widget.refresh_now()
+
+        def on_failure(message: str) -> None:
+            widget.end_browser_auth(success=False, message=message)
+
+        def on_complete() -> None:
+            self._auth_sessions.pop(instance.account.id, None)
+
+        session = GitHubBrowserAuth(
+            schedule_ui=schedule_ui,
+            on_waiting=on_waiting,
+            on_success=on_success,
+            on_failure=on_failure,
+            on_complete=on_complete,
+        )
+        self._auth_sessions[instance.account.id] = session
+        session.start()
+
+    def _authenticate_cursor(self, instance: AccountInstance, widget: AccountWidget) -> None:
         widget.begin_browser_auth()
 
         def schedule_ui(callback: Callable[[], None]) -> None:
@@ -258,7 +313,7 @@ class UsageMonitorApp:
                 on_close=lambda target=instance: self._close_account_widget(target),
                 on_authenticate=(
                     (lambda target=instance: self._authenticate_account(target))
-                    if instance.account.provider == "cursor"
+                    if instance.account.provider in {"cursor", "github_copilot"}
                     else None
                 ),
             )
