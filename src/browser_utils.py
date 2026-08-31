@@ -9,6 +9,7 @@ from pathlib import Path
 
 OPENAI_BILLING_URL = "https://platform.openai.com/settings/organization/billing/overview"
 SILICONFLOW_BILLING_URL = "https://cloud.siliconflow.com/me/expensebill"
+CLAUDE_USAGE_URL = "https://claude.ai/settings/usage"
 
 
 def open_url(url: str) -> None:
@@ -76,3 +77,9 @@ def open_siliconflow_login_url() -> None:
     """Open SiliconFlow billing in Firefox when available for readable cookies on Windows."""
     if not open_url_in_firefox(SILICONFLOW_BILLING_URL):
         open_url(SILICONFLOW_BILLING_URL)
+
+
+def open_claude_login_url() -> None:
+    """Open Claude.ai usage settings in Firefox when available for readable cookies."""
+    if not open_url_in_firefox(CLAUDE_USAGE_URL):
+        open_url(CLAUDE_USAGE_URL)

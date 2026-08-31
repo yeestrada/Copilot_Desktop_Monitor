@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,6 +13,11 @@ CONFIG_PATH = ROOT_DIR / "config.json"
 EXAMPLE_CONFIG_PATH = ROOT_DIR / "config.example.json"
 if is_frozen() and not EXAMPLE_CONFIG_PATH.exists():
     EXAMPLE_CONFIG_PATH = bundle_dir() / "config.example.json"
+
+_ORG_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 PLAN_LIMITS_PREMIUM = {
     "free": 50,
@@ -153,12 +159,15 @@ class AccountConfig:
         if self.provider == "siliconflow":
             return self.organization.strip()
         if self.provider == "claude_code":
-            if self.organization.strip():
-                return self.organization.strip()
             email = self.cursor_email.strip()
             if email and "@" in email:
                 return email.split("@", 1)[0]
-            return email or "claude"
+            if email:
+                return email
+            org = self.organization.strip()
+            if org and not _ORG_UUID_RE.match(org):
+                return org
+            return "claude"
         return self.github_username
 
     def resolve_monthly_limit(self, billing_mode: str, api_limit: float | None) -> float | None:
@@ -231,9 +240,8 @@ class AccountConfig:
                 )
 
         if self.provider == "claude_code":
-            if not self.session_token.strip():
-                # Allowed when ~/.claude/.credentials.json or CLAUDE_CODE_OAUTH_TOKEN exists.
-                pass
+            if not self.session_token.strip() and not self.organization.strip():
+                pass  # Allow in-app browser sign-in / local OAuth credentials.
             # For claude.ai web quota: organization must be the org UUID from /usage URL.
 
         return errors
@@ -436,6 +444,34 @@ class MonitorConfig:
             if account.id == account_id:
                 account.session_token = session_token.strip()
                 account.organization = organization.strip()
+                break
+
+    def save_account_claude_session(
+        self,
+        account_id: str,
+        *,
+        session_token: str,
+        organization: str,
+        display_name: str = "",
+    ) -> None:
+        data = _read_json(CONFIG_PATH)
+        for account in data.get("accounts", []):
+            if str(account.get("id")) == account_id:
+                account["session_token"] = session_token
+                account["organization"] = organization
+                if display_name.strip():
+                    account["cursor_email"] = display_name.strip()
+                    account["plan"] = account.get("plan") or "free"
+                break
+        _write_json(CONFIG_PATH, data)
+        for account in self.accounts:
+            if account.id == account_id:
+                account.session_token = session_token.strip()
+                account.organization = organization.strip()
+                if display_name.strip():
+                    account.cursor_email = display_name.strip()
+                    if not account.plan or account.plan == "claude":
+                        account.plan = "free"
                 break
 
     def save_autostart_enabled(self, enabled: bool) -> None:

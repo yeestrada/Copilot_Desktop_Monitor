@@ -86,8 +86,8 @@
       "label": "Claude Code",
       "provider": "claude_code",
       "enabled": true,
-      "session_token": "paste_claude_ai_Cookie_or_sessionKey_here",
-      "organization": "your-claude-org-uuid-from-usage-url",
+      "session_token": "",
+      "organization": "",
       "plan": "max",
       "widget": {
         "enabled": true,

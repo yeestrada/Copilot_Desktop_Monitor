@@ -33,6 +33,7 @@ AUTH_BUTTON_LABELS = {
     "cursor": "Sign in to Cursor",
     "openai": "Sign in to OpenAI",
     "siliconflow": "Sign in to SiliconFlow",
+    "claude_code": "Sign in to Claude",
 }
 
 BG_APP = "#0d1117"
@@ -442,6 +443,8 @@ class AccountWidget(tk.Toplevel):
             return not self.account.session_token.strip()
         if self.account.provider == "siliconflow":
             return not self.account.session_token.strip() or not self.account.organization.strip()
+        if self.account.provider == "claude_code":
+            return not self.account.session_token.strip() and not self.account.organization.strip()
         if self.account.provider != "cursor":
             return False
         if self.account.cursor_auth_mode == "admin_api":
@@ -457,13 +460,18 @@ class AccountWidget(tk.Toplevel):
             message = "Sign in to OpenAI to load your credit balance."
         elif self.account.provider == "siliconflow":
             message = "Sign in to SiliconFlow to load your wallet balance."
+        elif self.account.provider == "claude_code":
+            message = "Sign in to Claude to load your plan quota."
         else:
             message = "Sign in to Cursor to load your usage quota."
         self._present_auth_required(message)
 
     def _present_auth_required(self, message: str, *, show_login: bool = True) -> None:
         _, badge_bg, _ = STATUS_COLORS[UsageStatus.ERROR]
-        self.status_badge.configure(text="Sign in", bg=badge_bg)
+        self.status_badge.configure(
+            text="Sign in" if show_login else "Error",
+            bg=badge_bg,
+        )
         if not self._collapsed:
             self._set_truncated_label(
                 self.error_label,
@@ -675,6 +683,7 @@ class AccountWidget(tk.Toplevel):
                         or self.account.provider == "github_copilot"
                         or self.account.provider == "openai"
                         or self.account.provider == "siliconflow"
+                        or self.account.provider == "claude_code"
                     )
                 )
                 usage = AccountUsage(

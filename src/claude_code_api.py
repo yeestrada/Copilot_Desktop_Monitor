@@ -44,10 +44,26 @@ class ClaudeCodeClient:
 
     def fetch_usage(self) -> AccountUsage:
         period_label = datetime.now(timezone.utc).strftime("%m/%Y")
+        has_web = bool(self.account.session_token.strip() and self.account.organization.strip())
+        has_oauth_hint = bool(self.account.session_token.strip()) or bool(
+            os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
+        )
+        credentials_path = _credentials_path()
+        has_local_oauth = bool(credentials_path and credentials_path.is_file())
+        if not has_web and not has_oauth_hint and not has_local_oauth:
+            return self._error_usage(
+                period_label,
+                "Sign in to Claude to load your plan quota.",
+                needs_auth=True,
+            )
         try:
             payload, source = self._request_live_usage()
         except ClaudeCodeApiError as exc:
-            return self._error_usage(period_label, str(exc))
+            return self._error_usage(
+                period_label,
+                str(exc),
+                needs_auth=_claude_auth_needed(str(exc)),
+            )
 
         session = _pick_bucket(payload, "five_hour", kinds=("session",))
         weekly = _pick_bucket(payload, "seven_day", kinds=("weekly_all",))
@@ -58,7 +74,37 @@ class ClaudeCodeClient:
             payload, "seven_day_opus", kinds=("weekly_scoped",), model="opus"
         )
 
+        profile = _fetch_account_profile(self.account)
+        display_name = (
+            (profile or {}).get("display_name")
+            or (profile or {}).get("email_address")
+            or ""
+        ).strip()
+
         if session is None and weekly is None:
+            if _is_empty_quota_payload(payload):
+                detected_plan = _plan_from_capabilities((profile or {}).get("capabilities"))
+                plan_label = detected_plan or "free"
+                username = display_name
+                if "@" in username:
+                    username = username.split("@", 1)[0]
+                if not username or _is_org_uuid(username):
+                    username = "claude"
+                return AccountUsage(
+                    used=0.0,
+                    limit=100.0,
+                    unit="%",
+                    billing_mode="claude_code_quota",
+                    status=UsageStatus.OK,
+                    percent_used=0.0,
+                    remaining=100.0,
+                    username=username,
+                    period_label=period_label,
+                    plan=plan_label,
+                    organization=f"Free plan · no quota windows · via {source}",
+                    provider=self.account.provider,
+                    label=self.account.label,
+                )
             return self._error_usage(
                 period_label, "Claude usage response missing five_hour/seven_day quota"
             )
@@ -81,12 +127,21 @@ class ClaudeCodeClient:
         detail = " · ".join(detail_parts)
 
         username = (
-            self.account.display_username
+            display_name
+            or self.account.display_username
             or self.account.organization
             or "claude"
         )
+        if "@" in username:
+            username = username.split("@", 1)[0]
         if _is_org_uuid(username):
             username = "claude"
+
+        plan_label = (
+            _plan_from_capabilities((profile or {}).get("capabilities"))
+            or self.account.plan
+            or "claude"
+        )
 
         return AccountUsage(
             used=percent,
@@ -98,7 +153,7 @@ class ClaudeCodeClient:
             remaining=remaining,
             username=username,
             period_label=reset_label,
-            plan=self.account.plan or "claude",
+            plan=plan_label,
             organization=detail,
             provider=self.account.provider,
             label=self.account.label,
@@ -219,7 +274,13 @@ class ClaudeCodeClient:
             timeout=20,
         )
 
-    def _error_usage(self, period_label: str, message: str) -> AccountUsage:
+    def _error_usage(
+        self,
+        period_label: str,
+        message: str,
+        *,
+        needs_auth: bool = False,
+    ) -> AccountUsage:
         return AccountUsage(
             used=0.0,
             limit=None,
@@ -235,7 +296,95 @@ class ClaudeCodeClient:
             organization=self.account.organization,
             provider=self.account.provider,
             label=self.account.label,
+            needs_auth=needs_auth,
         )
+
+
+def _claude_auth_needed(message: str) -> bool:
+    lowered = message.lower()
+    return any(
+        token in lowered
+        for token in (
+            "missing claude",
+            "invalid or expired",
+            "sign in",
+            "401",
+            "403",
+            "sessionkey",
+            "credentials",
+        )
+    )
+
+
+def _is_empty_quota_payload(payload: dict[str, Any]) -> bool:
+    """Free claude.ai accounts often return null bars and an empty limits list."""
+    has_legacy = any(
+        isinstance(payload.get(key), dict)
+        for key in ("five_hour", "seven_day", "seven_day_sonnet", "seven_day_opus")
+    )
+    limits = payload.get("limits")
+    has_limits = isinstance(limits, list) and any(isinstance(item, dict) for item in limits)
+    return not has_legacy and not has_limits
+
+
+def _plan_from_capabilities(capabilities: Any) -> str:
+    if not isinstance(capabilities, list):
+        return ""
+    caps = [str(item).strip().lower() for item in capabilities if str(item).strip()]
+    for cap in caps:
+        if cap.startswith("claude_"):
+            return cap.removeprefix("claude_").replace("_", " ") or "free"
+    if caps == ["chat"] or caps == []:
+        return "free"
+    return ""
+
+
+def _fetch_account_profile(account: AccountConfig) -> dict[str, Any] | None:
+    cookie = _normalize_cookie(account.session_token)
+    if not cookie or not _looks_like_web_session(cookie):
+        return None
+    try:
+        response = requests.get(
+            "https://claude.ai/api/account",
+            headers={
+                "Accept": "application/json",
+                "Cookie": cookie,
+                "User-Agent": DEFAULT_USER_AGENT,
+                "Referer": "https://claude.ai/settings/usage",
+                "Origin": "https://claude.ai",
+            },
+            timeout=15,
+        )
+    except requests.RequestException:
+        return None
+    if not response.ok:
+        return None
+    payload = _safe_json(response)
+    if not payload:
+        return None
+
+    capabilities: list[str] = []
+    memberships = payload.get("memberships")
+    if isinstance(memberships, list):
+        for membership in memberships:
+            if not isinstance(membership, dict):
+                continue
+            org = membership.get("organization")
+            if not isinstance(org, dict):
+                continue
+            org_uuid = str(org.get("uuid") or "").strip()
+            if account.organization and org_uuid and org_uuid != account.organization:
+                continue
+            caps = org.get("capabilities")
+            if isinstance(caps, list):
+                capabilities = [str(item) for item in caps]
+                break
+
+    return {
+        "display_name": str(payload.get("display_name") or "").strip(),
+        "email_address": str(payload.get("email_address") or "").strip(),
+        "capabilities": capabilities,
+    }
 
 
 def _normalize_cookie(raw: str) -> str:
