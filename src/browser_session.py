@@ -3,13 +3,14 @@ from __future__ import annotations
 import re
 from typing import Callable, Iterable
 
-_BROWSER_LOADERS: list[tuple[str, str]] = [
+BROWSER_COOKIE_LOADERS: list[tuple[str, str]] = [
     ("Microsoft Edge", "edge"),
     ("Google Chrome", "chrome"),
     ("Mozilla Firefox", "firefox"),
     ("Brave", "brave"),
     ("Chromium", "chromium"),
 ]
+
 
 CHROMIUM_DECRYPT_ERROR = "Unable to get key for cookie decryption"
 
@@ -47,7 +48,7 @@ def read_provider_cookies(
     merged: dict[str, str] = {}
     prefixes = tuple(cookie_prefixes)
 
-    for label, loader_name in _BROWSER_LOADERS:
+    for label, loader_name in BROWSER_COOKIE_LOADERS:
         loader = getattr(browser_cookie3, loader_name, None)
         if loader is None:
             continue
@@ -61,7 +62,7 @@ def read_provider_cookies(
                 if CHROMIUM_DECRYPT_ERROR in message and loader_name in {"chrome", "edge", "brave", "chromium"}:
                     notes.append(
                         f"{label}: encrypted cookies (Windows). "
-                        "Use Firefox or paste the sess- token manually."
+                        "Sign in with Edge, or paste the session token manually."
                     )
                 else:
                     notes.append(f"{label}@{domain}: {message}")

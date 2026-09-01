@@ -9,7 +9,8 @@ from uuid import UUID
 
 import requests
 
-from browser_utils import open_claude_login_url
+from browser_session import BROWSER_COOKIE_LOADERS
+from browser_utils import open_claude_login_url, preferred_auth_browser_name
 from openai_auth import _file_fingerprint, _firefox_profiles, _sqlite_temp_connection
 
 CLAUDE_USAGE_URL = "https://claude.ai/settings/usage"
@@ -41,16 +42,17 @@ def read_session_from_browsers() -> tuple[str | None, str | None, list[str]]:
     """Return (cookie_header, org_uuid, notes)."""
     notes: list[str] = []
 
-    cookie_header = _read_firefox_cookie_header()
+    cookie_header, cookie_notes = _read_cookies_via_browser_cookie3()
+    notes.extend(cookie_notes)
     if not cookie_header:
-        cookie_header, cookie_notes = _read_cookies_via_browser_cookie3()
-        notes.extend(cookie_notes)
-    else:
-        notes.append("Firefox: claude.ai cookies read.")
+        cookie_header = _read_firefox_cookie_header()
+        if cookie_header:
+            notes.append("Firefox: claude.ai cookies read.")
 
     if not cookie_header or f"{SESSION_COOKIE_NAME}=" not in cookie_header:
+        browser = preferred_auth_browser_name()
         notes.append(
-            "Sign in with Firefox (claude.ai Usage). "
+            f"Sign in with {browser} (claude.ai Usage). "
             "The monitor will detect the session automatically."
         )
         return None, None, notes
@@ -281,12 +283,7 @@ def _read_cookies_via_browser_cookie3() -> tuple[str | None, list[str]]:
         notes.append("browser-cookie3 not installed.")
         return None, notes
 
-    loaders = (
-        ("Mozilla Firefox", "firefox"),
-        ("Microsoft Edge", "edge"),
-        ("Google Chrome", "chrome"),
-        ("Brave", "brave"),
-    )
+    loaders = BROWSER_COOKIE_LOADERS
     for label, loader_name in loaders:
         loader = getattr(browser_cookie3, loader_name, None)
         if loader is None:

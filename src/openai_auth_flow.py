@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from typing import Callable
 
+from browser_utils import auth_browser_open_message, preferred_auth_browser_name
 from openai_auth import (
     OpenAIAuthError,
     open_openai_login,
@@ -15,7 +16,7 @@ AUTH_TIMEOUT_SECONDS = 300.0
 
 
 class OpenAIBrowserAuth:
-    """Browser-only OpenAI sign-in with background Firefox session polling."""
+    """Browser-only OpenAI sign-in with background session polling."""
 
     def __init__(
         self,
@@ -41,10 +42,7 @@ class OpenAIBrowserAuth:
             return
 
         self._schedule_ui(
-            lambda: self._notify_progress(
-                "Firefox opened Billing. Sign in and wait; "
-                "the monitor will detect the session automatically."
-            )
+            lambda: self._notify_progress(auth_browser_open_message("OpenAI Billing"))
         )
         self._stop.clear()
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
@@ -83,8 +81,9 @@ class OpenAIBrowserAuth:
         if not self._stop.is_set():
             self._schedule_ui(
                 lambda: self._finish_failure(
-                    "Timed out. Use Firefox, sign in to Billing, and try again. "
-                    "Edge/Chrome on Windows do not expose the OpenAI session to the monitor."
+                    f"Timed out. Stay on the OpenAI Billing page in {preferred_auth_browser_name()} "
+                    "until it fully loads, then try Sign in again. "
+                    "Or paste a sess- token from DevTools → Network → credit_grants."
                 )
             )
 

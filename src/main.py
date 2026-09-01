@@ -21,6 +21,7 @@ from config import (
     ConfigBootstrapRequired,
     MonitorConfig,
 )
+from browser_utils import auth_browser_open_message
 from cursor_auth_flow import CursorBrowserAuth
 from github_auth import open_github_device_login
 from github_auth_flow import GitHubBrowserAuth
@@ -275,7 +276,7 @@ class UsageMonitorApp:
             widget.update_browser_auth_message(message)
 
         widget.begin_browser_auth(
-            "Firefox will open Billing. Sign in; the monitor will connect automatically."
+            auth_browser_open_message("OpenAI Billing")
         )
 
         def on_success(token: str, _account_label: str) -> None:
@@ -309,7 +310,7 @@ class UsageMonitorApp:
             widget.update_browser_auth_message(message)
 
         widget.begin_browser_auth(
-            "Firefox will open SiliconFlow Billing. Sign in; the monitor will connect automatically."
+            auth_browser_open_message("SiliconFlow Billing")
         )
 
         def on_success(cookie_header: str, subject_id: str, _account_label: str) -> None:
@@ -347,7 +348,7 @@ class UsageMonitorApp:
             widget.update_browser_auth_message(message)
 
         widget.begin_browser_auth(
-            "Firefox will open claude.ai Usage. Sign in; the monitor will connect automatically."
+            auth_browser_open_message("claude.ai Usage")
         )
 
         def on_success(cookie_header: str, org_id: str, account_label: str) -> None:
@@ -378,11 +379,16 @@ class UsageMonitorApp:
         session.start()
 
     def _authenticate_cursor(self, instance: AccountInstance, widget: AccountWidget) -> None:
-        widget.begin_browser_auth()
-
         def schedule_ui(callback: Callable[[], None]) -> None:
             if widget.winfo_exists():
                 widget.after(0, callback)
+
+        def on_progress(message: str) -> None:
+            widget.update_browser_auth_message(message)
+
+        widget.begin_browser_auth(
+            auth_browser_open_message("Cursor login")
+        )
 
         def on_success(token: str, _account_label: str) -> None:
             self.config.save_account_session_token(instance.account.id, token)
@@ -401,6 +407,7 @@ class UsageMonitorApp:
             on_success=on_success,
             on_failure=on_failure,
             on_complete=on_complete,
+            on_progress=on_progress,
         )
         self._auth_sessions[instance.account.id] = session
         session.start()

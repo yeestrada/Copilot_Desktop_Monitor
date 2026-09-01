@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from browser_utils import open_url
+from browser_session import BROWSER_COOKIE_LOADERS
+from browser_utils import open_cursor_login_url
 from urllib.parse import unquote
 
 import requests
@@ -8,14 +9,6 @@ import requests
 CURSOR_LOGIN_URL = "https://cursor.com/login"
 CURSOR_COOKIE_NAME = "WorkosCursorSessionToken"
 CURSOR_COOKIE_DOMAINS = (".cursor.com", "cursor.com", "www.cursor.com")
-
-_BROWSER_LOADERS: list[tuple[str, str]] = [
-    ("Microsoft Edge", "edge"),
-    ("Google Chrome", "chrome"),
-    ("Mozilla Firefox", "firefox"),
-    ("Brave", "brave"),
-    ("Chromium", "chromium"),
-]
 
 
 class CursorAuthError(Exception):
@@ -27,7 +20,7 @@ def normalize_session_token(token: str) -> str:
 
 
 def open_cursor_login() -> None:
-    open_url(CURSOR_LOGIN_URL)
+    open_cursor_login_url()
 
 
 def read_session_token_from_browsers() -> tuple[str | None, list[str]]:
@@ -40,7 +33,7 @@ def read_session_token_from_browsers() -> tuple[str | None, list[str]]:
         ) from exc
 
     notes: list[str] = []
-    for label, loader_name in _BROWSER_LOADERS:
+    for label, loader_name in BROWSER_COOKIE_LOADERS:
         loader = getattr(browser_cookie3, loader_name, None)
         if loader is None:
             continue

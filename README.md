@@ -21,7 +21,7 @@ Cross-platform desktop widget (Windows, macOS, Linux) that monitors monthly AI u
 - Python 3.10+
 - Tkinter (bundled with Python on Windows/macOS; on Linux install `python3-tk`)
 - Python packages: `requests`, `pystray`, `Pillow`, plus browser helpers used for auto-auth (see `requirements.txt`)
-- **Firefox** recommended for OpenAI / SiliconFlow / Claude **Sign in** (cookie / localStorage reading on Windows)
+- **Microsoft Edge** on Windows for OpenAI / Cursor / SiliconFlow / Claude **Sign in** (opens Edge and reads cookies from the same browser)
 
 ## Quick start
 
@@ -170,9 +170,10 @@ When credentials are missing, the widget shows **Sign in** (English). Behavior b
 |---|---|
 | GitHub Copilot | OAuth **device code** in the browser; paste the 8-character code shown on the widget |
 | Cursor | Opens browser login and polls for `WorkosCursorSessionToken` |
-| OpenAI | Opens **Firefox** on Billing and polls until a `sess-` token is available |
-| SiliconFlow | Opens **Firefox** on SiliconFlow Billing and reads session cookie + subject id |
-| Claude Code | Opens **Firefox** on claude.ai Usage; picks org via `lastActiveOrg` / paid plan preference |
+| OpenAI | Opens **Edge** (Windows) on Billing and polls until a `sess-` token is available |
+| SiliconFlow | Opens **Edge** on SiliconFlow Billing and reads session cookie + subject id |
+| Claude Code | Opens **Edge** on claude.ai Usage; picks org via `lastActiveOrg` / paid plan preference |
+| Cursor | Opens **Edge** on cursor.com login and reads `WorkosCursorSessionToken` |
 
 Credentials are written back into `config.json` after a successful sign-in.
 
@@ -223,10 +224,11 @@ The app tries the internal Copilot API first (`data_source: auto`), then falls b
 
 **User API Keys do not expose personal usage quota.** For personal accounts you need a **session token** from the browser, or use **Sign in**.
 
-1. Log in at [cursor.com](https://cursor.com)
-2. Open DevTools → **Application** → **Cookies** → `cursor.com`
-3. Copy the value of `WorkosCursorSessionToken`
-4. Paste it into `session_token` in `config.json`
+**Sign in on Windows:** Click **Sign in** — the monitor opens **Microsoft Edge** (preinstalled on most PCs) and reads the session from that same browser. If Edge is missing, your default browser is used.
+
+1. Click **Sign in** on the widget
+2. Or log in at [cursor.com](https://cursor.com) in Edge manually
+3. Or copy `WorkosCursorSessionToken` from DevTools → Application → Cookies → `cursor.com` into `session_token`
 
 The token may be URL-encoded (`%3A%3A` instead of `::`). Paste it as copied — the app decodes it automatically.
 
@@ -298,13 +300,13 @@ The progress bar and status thresholds are based on the dashboard %, not the raw
 
 This monitors **OpenAI Platform API credit balance** (prepaid credits), not ChatGPT Plus/Team message limits.
 
-### Recommended: Sign in (Firefox)
+### Recommended: Sign in (Edge on Windows)
 
 1. Enable the OpenAI account in `config.json` (`"enabled": true`).
 2. Click **Sign in** on the widget.
-3. Complete login in **Firefox** on the Billing page; the monitor detects the `sess-` token automatically.
+3. Complete login in **Edge** on the Billing page and stay there until the widget connects (OpenAI stores the session in Edge localStorage, not only cookies).
 
-Edge/Chrome on Windows often cannot expose the OpenAI session to the monitor; use Firefox.
+If Edge is not installed, your default browser is used instead.
 
 ### Manual: browser session token
 
@@ -373,9 +375,9 @@ The old public endpoint `GET /v1/user/info` was retired (**HTTP 410**, Aug 2026)
 
 `GET https://cloud.siliconflow.com/walletd-server/api/v1/subject/profile/peek`
 
-### Recommended: Sign in (Firefox)
+### Recommended: Sign in (Edge on Windows)
 
-Click **Sign in** on the widget, log in to SiliconFlow Billing in Firefox, and wait for the monitor to capture the session cookie and subject id.
+Click **Sign in** on the widget, log in to SiliconFlow Billing in Edge, and wait for the monitor to capture the session cookie and subject id.
 
 ### Manual credentials
 
@@ -449,11 +451,11 @@ This shows your **live Claude plan quota** — the same numbers as **claude.ai �
 
 **Do not use** an Anthropic API key (`sk-ant-...`). That is API spend, not plan windows.
 
-### Recommended: Sign in (Firefox)
+### Recommended: Sign in (Edge on Windows)
 
 1. Enable the Claude account (`"enabled": true`). Leave `session_token` / `organization` empty if you want a clean login.
 2. Click **Sign in** on the widget.
-3. In Firefox, sign in to the **Claude account / org / plan you want to monitor** (Free, Pro, Max, Team, …).
+3. In Edge, sign in to the **Claude account / org / plan you want to monitor** (Free, Pro, Max, Team, …).
 4. Stay on [Settings → Usage](https://claude.ai/settings/usage) until the widget connects.
 
 The monitor:
@@ -605,7 +607,7 @@ Icons in `assets/icons/` are bundled automatically for the header and PyInstalle
 
 - **Linux:** install `python3-tk` if the window does not appear. Some desktops do not support window transparency (`opacity`).
 - **macOS:** accessibility permission may be requested the first time you use the system tray.
-- **Windows:** autostart uses the current user's registry (no administrator rights required). Firefox is recommended for OpenAI / SiliconFlow / Claude Sign in.
+- **Windows:** autostart uses the current user's registry (no administrator rights required). Sign in uses **Microsoft Edge** when available.
 - **Single instance:** starting the app twice exits silently; use the tray to manage the running instance.
 
 ---
@@ -633,7 +635,7 @@ Docs: https://cursor.com/docs/account/teams/admin-api
 ### OpenAI
 
 - `GET https://api.openai.com/v1/dashboard/billing/credit_grants` — credit balance (`Authorization: Bearer sess-...`)
-- Sign in may exchange Firefox localStorage JWT → `sess-` via onboarding login
+- Sign in reads Edge localStorage / cookies and may exchange JWT → `sess-` via onboarding login
 
 ### SiliconFlow
 
@@ -653,11 +655,11 @@ Docs: https://cursor.com/docs/account/teams/admin-api
 |---|---|
 | First run only shows a notice and exits | Expected: edit the new `config.json`, set at least one `"enabled": true`, start again |
 | Generated `config.json` missing Claude | Update to a build that embeds the internal template; delete old `config.json` and relaunch once |
-| Widget shows **Error** (Cursor) | Sign in again or refresh `session_token` from browser cookies |
+| Widget shows **Error** (Cursor) | Sign in again in **Edge** (same browser the monitor opens), or paste `WorkosCursorSessionToken` into `session_token` |
 | Widget shows **Error** (Copilot) | Sign in (device code) or regenerate token; ensure Plan read / copilot scope |
-| Widget shows **Error** (OpenAI) | Sign in with Firefox, or refresh `sess-...` from Network → `credit_grants` |
-| Widget shows **Error** (SiliconFlow) | Sign in with Firefox, or refresh Cookie + `x-subject-id` from `profile/peek`. Truncated Cookie (`…`) causes encode errors |
-| Widget shows **Error** / wrong plan (Claude) | Sign in with Firefox on the intended account. Do not rely on local `~/.claude` OAuth. Do not use `sk-ant-...` |
+| Widget shows **Error** (OpenAI) | Sign in with Edge to Billing, or refresh `sess-...` from Network → `credit_grants` |
+| Widget shows **Error** (SiliconFlow) | Sign in with Edge to Billing, or refresh Cookie + `x-subject-id` from `profile/peek`. Truncated Cookie (`…`) causes encode errors |
+| Widget shows **Error** / wrong plan (Claude) | Sign in with Edge on the intended account. Do not rely on local `~/.claude` OAuth. Do not use `sk-ant-...` |
 | Claude shows **100%** but website shows **~1%** | Fixed in current builds (utilization scale). Update the exe and refresh |
 | Claude stuck on Free | Sign in again while the desired org/plan is active on claude.ai (`lastActiveOrg`) |
 | Copilot widget drops behind other windows | Fixed in current builds (always-on-top restored after device-code prompt) |
@@ -701,12 +703,12 @@ Copilot_Desktop_Monitor/
 │   ├── cursor_api.py             # Cursor usage client
 │   ├── cursor_auth.py / _flow.py # Cursor cookie Sign in
 │   ├── openai_api.py             # OpenAI credit balance (sess- token)
-│   ├── openai_auth.py / _flow.py # OpenAI Firefox / sess- Sign in
+│   ├── openai_auth.py / _flow.py # OpenAI Edge / sess- Sign in
 │   ├── siliconflow_api.py        # SiliconFlow wallet client
 │   ├── siliconflow_auth.py / _flow.py
 │   ├── claude_code_api.py        # Claude plan quota (+ utilization scale handling)
 │   ├── claude_auth.py / _flow.py # Claude Firefox Sign in + org selection
-│   ├── browser_utils.py          # Open login URLs / Firefox helpers
+│   ├── browser_utils.py          # Open login URLs (Edge on Windows) / browser helpers
 │   ├── browser_session.py        # Cross-browser cookie helpers
 │   └── provider_icons.py         # Header icon loader
 ├── run.bat / run.sh              # Launch scripts

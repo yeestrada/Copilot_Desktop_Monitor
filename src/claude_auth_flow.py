@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from typing import Callable
 
+from browser_utils import auth_browser_open_message, preferred_auth_browser_name
 from claude_auth import (
     ClaudeAuthError,
     open_claude_login,
@@ -15,7 +16,7 @@ AUTH_TIMEOUT_SECONDS = 300.0
 
 
 class ClaudeBrowserAuth:
-    """Browser Claude.ai sign-in with background Firefox cookie polling."""
+    """Browser Claude.ai sign-in with background cookie polling."""
 
     def __init__(
         self,
@@ -42,8 +43,8 @@ class ClaudeBrowserAuth:
 
         self._schedule_ui(
             lambda: self._notify_progress(
-                "Firefox opened claude.ai Usage. Sign in to the account/plan you want "
-                "to monitor; the monitor will detect that session automatically."
+                auth_browser_open_message("claude.ai Usage")
+                + " Sign in to the account/plan you want to monitor."
             )
         )
         self._stop.clear()
@@ -85,8 +86,8 @@ class ClaudeBrowserAuth:
         if not self._stop.is_set():
             self._schedule_ui(
                 lambda: self._finish_failure(
-                    "Timed out. Use Firefox, sign in to claude.ai "
-                    "(Settings → Usage), and try again."
+                    f"Timed out. Sign in with {preferred_auth_browser_name()} on claude.ai "
+                    "(Settings → Usage) and try again."
                 )
             )
 

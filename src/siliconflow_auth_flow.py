@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from typing import Callable
 
+from browser_utils import auth_browser_open_message, preferred_auth_browser_name
 from siliconflow_auth import (
     SiliconFlowAuthError,
     open_siliconflow_login,
@@ -15,7 +16,7 @@ AUTH_TIMEOUT_SECONDS = 300.0
 
 
 class SiliconFlowBrowserAuth:
-    """Browser SiliconFlow sign-in with background Firefox cookie polling."""
+    """Browser SiliconFlow sign-in with background cookie polling."""
 
     def __init__(
         self,
@@ -41,10 +42,7 @@ class SiliconFlowBrowserAuth:
             return
 
         self._schedule_ui(
-            lambda: self._notify_progress(
-                "Firefox opened SiliconFlow Billing. Sign in and wait; "
-                "the monitor will detect the session automatically."
-            )
+            lambda: self._notify_progress(auth_browser_open_message("SiliconFlow Billing"))
         )
         self._stop.clear()
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
@@ -85,8 +83,8 @@ class SiliconFlowBrowserAuth:
         if not self._stop.is_set():
             self._schedule_ui(
                 lambda: self._finish_failure(
-                    "Timed out. Use Firefox, sign in to SiliconFlow Billing, "
-                    "and try again."
+                    f"Timed out. Sign in with {preferred_auth_browser_name()} to "
+                    "SiliconFlow Billing and try again."
                 )
             )
 
